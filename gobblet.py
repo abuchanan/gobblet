@@ -1,6 +1,9 @@
-import math
+from collections import namedtuple
+from copy import deepcopy
+from functools import total_ordering
 
 
+#import math
 #print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
 
 class Winner(Exception): pass
@@ -13,101 +16,37 @@ class Board(object):
         # with "size" columns and row, where each cell is a list.
         self.cells = [[[]] * size for x in range(size)]
 
-        self._next_move = None
-
     def _get_column(self, col):
         return [self.cells[row][col] for row in range(self.size)]
-        
-    def _is_win(self):
-        def check_cells(cells):
-            first = cells[0]
-            # Compare every cell after the first with the first cell
-            # If they are all the same as the first, they'll all be True,
-            # so all() will return True, meaning it's a win.
-            return first and all(cell == first for cell in cells[1:])
 
-        def gen_cells_to_check():
-            # Generate the groups of cells that need to be checked:
-            # each row, each column, and the two diagonals.
-            diagonal_a = []
-            diagonal_b = []
+    def get_cell(self, pos):
+        row, col = pos
+        return self.cells[row][col]
 
-            for i in range(self.size):
-                # Rows
-                yield self.cells[i]
-                # Columns
-                yield self._get_column(i)
 
-                diagonal_a.append(self.cells[i][i])
-                diagonal_b.append(self.cells[self.size - i - 1][i])
+@total_ordering
+class Piece(object):
+    def __init__(self, player, name, size):
+        self.player = player
+        self.name = name
+        self.size = size
 
-            # The two diagonals
-            yield diagonal_a
-            yield diagonal_b
+    def __eq__(self, other):
+        if isinstance(other, int):
+            return self.size == other
+        return self.size == other.size
 
-        for cells in gen_cells_to_check():
-            if check_cells(cells):
-                piece, player = cells[0]
-                return player
+    def __lt__(self, other):
+        if isinstance(other, int):
+            return self.size < other
+        return self.size < other.size
 
-    def set_move(self, cell, value, player):
-        self._next_move = cell, value, player
-
-    def has_valid_move(self):
-        if self._next_move is None:
-            return False
-
-        cell, piece, player = self._next_move
-
-        row, col = cell
-        target = self.cells[row][col]
-
-        if not target:
-            return True
-        else:
-            target_piece, target_player = target[-1]
-            return piece > target_piece
-
-    def commit(self):
-        # TODO next move doesn't account for where the piece is coming _from_
-        if self._next_move:
-            # TODO remove piece, check for win of opponent (of opponent only?),
-            #      place piece, check for win
-
-            # Commit the move to the cell
-            cell, piece, player = self._next_move
-            row, col = cell
-            cell_value = piece, player
-            self.cells[row][col].append(cell_value)
-
-            # Reset the next move
-            self._next_move = None
-
-    def player_API(board, player):
-        # This is providing a public API that can be used by Players instances;
-        # not strictly necessary, but it's nice to not worry about the players
-        # messing with the board data structure.
-        #
-        # ...now I'm curious, is there a way around this scope closure?
-        class BoardAPI(object):
-            def __getitem__(api, key):
-                return board.cells[key]
-
-            def __setitem__(api, key, value):
-                board.set_move(key, value, player)
-
-            @property
-            def size(api):
-                return board.size
-
-        return BoardAPI()
-        
 
 class Dugout(object):
 
     class NoSuchPiece(Exception): pass
 
-    def __init__(self, sizes, num_stacks):
+    def __init__(self, player, sizes, num_stacks):
         # The "dugout" represents a player's pieces that are not on the board,
         # stored as a list of lists, e.g.
         #
@@ -124,44 +63,197 @@ class Dugout(object):
         #
         # Pieces must be accessed in order, from largest to smallest, i.e.
         # popped off each stack.
-        self.pieces = [[size] * num_stacks for size in sizes]
+        self.pieces = []
+        for x in range(num_stacks):
+            stack = []
+            self.pieces.append(stack)
 
-        self.next_move = None
+            for size, name in enumerate(sizes):
+                piece = Piece(player, name, size)
+                stack.append(piece)
 
-    def available_sizes(self):
+    def available_pieces(self):
         available = []
         for stack in self.pieces:
             if stack:
                 available.append(stack[-1])
         return available
 
-    def use_piece(self, size):
-        if size not in self.available_sizes():
-            raise self.NoSuchPiece(size)
+    def use_piece(self, piece):
+        if piece not in self.available_pieces():
+            raise self.NoSuchPiece(piece)
 
         for stack in self.pieces:
-            if stack and stack[-1] == size:
+            if stack and stack[-1] == piece:
                 return stack.pop()
 
-    # TODO doesn't __require__ a move
-    def has_valid_move(self):
-        return self.next_move and self.next_move in self.available_sizes()
 
-    def commit(self):
-        if self.next_move:
-            self.use_piece(self.next_move)
-            self.next_move = None
+class Player(object):
 
-    def make_player_API(dugout):
+    def __init__(self, algorithm, board, sizes, num_each):
+        self.algorithm = algorithm
+        self.board = board
 
-        class DugoutAPI(object):
-            def available_sizes(api):
-                return dugout.available_sizes()
+        # The player given to the Dugout is an object ID. This allows
+        # the Dugout pieces to be easily copied and still compare to
+        # the original player.
+        self.dugout = Dugout(id(self), sizes, num_each)
+
+    def _DugoutAPI(self):
+        # Just for clarity, so there's no confusion with "self"
+        # in the inner class below.
+        dugout = self.dugout
+
+        # This is providing a public API that can be used by Players instances;
+        # not strictly necessary, but it's nice to not worry about the players
+        # messing with the dugout data structure.
+        class _API(object):
+            def __init__(api):
+                api.move = None
+
+            def available_pieces(api):
+                # Copy the pieces to prevent public modification.
+                #
+                # TODO a lightweight wrapper could be used instead
+                #      if performance is needed, but for now it's too complex.
+                return deepcopy(dugout.available_pieces())
                 
             def use_piece(api, piece):
-                dugout.next_move = piece
+                api.move = piece
                 
-        return DugoutAPI()
+        return _API()
+
+    def _BoardAPI(self):
+        # Just for clarity, so there's no confusion with "self"
+        # in the inner class below.
+        board = self.board
+
+        Move = namedtuple('Move', 'src dest')
+
+        # This is providing a public API that can be used by Players instances;
+        # not strictly necessary, but it's nice to not worry about the players
+        # messing with the board data structure.
+        class _API(object):
+            def __init__(api):
+                api.set_move(None, None)
+                
+            def get_cell(api, key):
+                # Copy the cell to prevent public modification.
+                #
+                # TODO a lightweight wrapper could be used instead
+                #      if performance is needed, but for now it's too complex.
+                return deepcopy(board.get_cell(key))
+
+            def get_move(api):
+                return api._move
+
+            def set_move(api, src, dest):
+                api._move = Move(src, dest)
+
+            @property
+            def size(api):
+                return board.size
+
+        return _API()
+
+    def _validate(self, dugout_move, board_move):
+
+        def _invalid(msg):
+            raise InvalidMove(msg)
+
+        if board_move.src is not None and dugout_move is not None:
+            _invalid("Can't have both a board source and a dugout source")
+
+        if board_move.src is not None:
+            src = self.board.get_cell(board_move.src)
+
+            if not src:
+                _invalid("Board source is empty")
+
+            src_piece = src[-1]
+
+        elif dugout_move is not None:
+            if dugout_move not in self.dugout.available_pieces():
+                _invalid("Dugout does not have the source size available")
+
+            src_piece = dugout_move
+
+        else:
+            _invalid("No source given.")
+
+        if src_piece.player != id(self):
+            _invalid("Can't move other player's piece")
+
+        if board_move.dest is None:
+            _invalid("No destination given.")
+
+        dest = self.board.get_cell(board_move.dest)
+
+        if dest and dest[-1] >= src_piece:
+            _invalid("Trying to cover a piece of equal or larger size")
+
+    def _check_win(board):
+
+        def check_cells(cells):
+            first = cells[0].player
+            # Compare every cell after the first with the first cell
+            # If they are all the same as the first, they'll all be True,
+            # so all() will return True, meaning it's a win.
+            return first and all(cell.player == first for cell in cells[1:])
+
+        def gen_cells_to_check():
+            # Generate the groups of cells that need to be checked:
+            # each row, each column, and the two diagonals.
+            diagonal_a = []
+            diagonal_b = []
+
+            for i in range(board.size):
+                # Rows
+                yield board.cells[i]
+                # Columns
+                yield board._get_column(i)
+
+                diagonal_a.append(board.cells[i][i])
+                diagonal_b.append(board.cells[board.size - i - 1][i])
+
+            # The two diagonals
+            yield diagonal_a
+            yield diagonal_b
+
+        for cells in gen_cells_to_check():
+            if check_cells(cells):
+                return cells[0].player
+
+    def _commit(self, dugout_move, board_move):
+
+        # Commit dugout
+        if dugout_move is not None:
+            self.dugout.use_piece(dugout_move)
+            piece = dugout_move
+
+        # Commit board
+        if board_move.src is not None:
+            piece = self.board.get_cell(board_move.src).pop()
+
+        # TODO check for opponent win only?
+        self._check_win()
+
+        self.board.get_cell(board_move.dest).append(piece)
+
+        self._check_win()
+
+    def move(self):
+        board_API = self._BoardAPI()
+        dugout_API = self._DugoutAPI()
+        self.algorithm(board_API, dugout_API)
+
+        board_move = board_API.move
+        dugout_move = dugout_API.move
+
+        # Validate moves
+        self._validate(board_move, dugout_move)
+
+        self._commit(board_move, dugout_move)
 
 
 class Forfeit(Exception): pass
@@ -173,7 +265,7 @@ class InvalidMove(Exception):
         self.dugout = dugout
 
 
-def game(white_algorithm, black_algorithm):
+def play(white_algorithm, black_algorithm):
     BOARD_SIZE = 4
     # 0 is the smallest, 3 the biggest
     PIECE_SIZES = [0, 1, 2, 3]
@@ -181,28 +273,14 @@ def game(white_algorithm, black_algorithm):
 
     board = Board(BOARD_SIZE)
 
-    white_board = board.make_player_API(white_algorithm)
-    black_board = board.make_player_API(black_algorithm)
-    
-    white_dugout = Dugout(PIECE_SIZES, NUM_PIECES).make_player_API()
-    black_dugout = Dugout(PIECE_SIZES, NUM_PIECES).make_player_API()
-
-    white = white_algorithm, white_board, white_dugout
-    black = black_algorithm, black_board, black_dugout
+    white = Player(white_algorithm, board, PIECE_SIZES, NUM_PIECES)
 
     on_deck = white
     not_on_deck = lambda: white if black is on_deck else white
 
     while True:
         try:
-            algorithm, board, dugout = on_deck
-            algorithm(board, dugout)
-
-            if board.has_valid_move() and dugout.has_valid_move():
-                dugout.commit()
-                board.commit()
-            else:
-                raise InvalidMove(algorithm, board, dugout)
+            on_deck.move()
 
         except Forfeit:
             return not_on_deck()
