@@ -14,7 +14,13 @@ class Board(object):
         self.size = size
         # This probably looks funny, but it's simply creating a square board,
         # with "size" columns and row, where each cell is a list.
-        self.cells = [[[]] * size for x in range(size)]
+        self.cells = []
+        for row_i in range(size):
+            row = []
+            self.cells.append(row)
+
+            for col in range(size):
+                row.append([])
 
     def _get_column(self, col):
         return [self.cells[row][col] for row in range(self.size)]
@@ -172,17 +178,17 @@ class Player(object):
 
             src_piece = src[-1]
 
+            if src_piece.player != id(self):
+                _invalid("Can't move other player's piece")
+
         elif dugout_move is not None:
             if dugout_move not in self.dugout.available_pieces():
-                _invalid("Dugout does not have the source size available")
+                _invalid("Invalid dugout piece")
 
             src_piece = dugout_move
 
         else:
             _invalid("No source given.")
-
-        if src_piece.player != id(self):
-            _invalid("Can't move other player's piece")
 
         if board_move.dest is None:
             _invalid("No destination given.")
@@ -190,16 +196,24 @@ class Player(object):
         dest = self.board.get_cell(board_move.dest)
 
         if dest and dest[-1] >= src_piece:
-            _invalid("Trying to cover a piece of equal or larger size")
+            _invalid("Can't cover a piece of equal or larger size")
 
-    def _check_win(board):
+    def _check_win(self, board):
 
         def check_cells(cells):
-            first = cells[0].player
+            players = []
+            for cell in cells:
+                if cell:
+                    players.append(cell[-1].player)
+                else:
+                    players.append(None)
+                
+            first = players[0]
             # Compare every cell after the first with the first cell
             # If they are all the same as the first, they'll all be True,
             # so all() will return True, meaning it's a win.
-            return first and all(cell.player == first for cell in cells[1:])
+            if first and all(player == first for player in players):
+                return first
 
         def gen_cells_to_check():
             # Generate the groups of cells that need to be checked:
@@ -221,8 +235,9 @@ class Player(object):
             yield diagonal_b
 
         for cells in gen_cells_to_check():
-            if check_cells(cells):
-                return cells[0].player
+            winner = check_cells(cells)
+            if winner:
+                return winner
 
     def _commit(self, dugout_move, board_move):
 
@@ -258,11 +273,7 @@ class Player(object):
 
 class Forfeit(Exception): pass
 
-class InvalidMove(Exception):
-    def __init__(self, algorithm, board, dugout):
-        self.algorithm = algorithm
-        self.board = board
-        self.dugout = dugout
+class InvalidMove(Exception): pass
 
 
 def play(white_algorithm, black_algorithm):

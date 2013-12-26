@@ -1,3 +1,4 @@
+from collections import namedtuple
 from copy import deepcopy
 import unittest
 
@@ -27,6 +28,16 @@ class BoardTestCase(unittest.TestCase):
         board = gobblet.Board(4)
         board.cells[0][1].append('foo')
         self.assertEqual(board.get_cell((0, 1)), ['foo'])
+
+    def test_cell_append(self):
+        board = gobblet.Board(4)
+        board.cells[0][0].append(1)
+        self.assertEqual(board.cells, [
+            [[1], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+        ])
 
 
 class PieceTestCase(unittest.TestCase):
@@ -179,7 +190,135 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         api.get_cell((2, 2)).append(3)
         self.assertEqual(board.cells[2][2], [])
 
+    def assertInvalidMove(self, dugout_src, board_src, board_dest, regexp):
+        BoardMove = namedtuple('Move', 'src dest')
+        with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
+            self.player._validate(dugout_src, BoardMove(board_src, board_dest))
 
+    def assertValidMove(self, dugout_src, board_src, board_dest):
+        BoardMove = namedtuple('Move', 'src dest')
+        self.player._validate(dugout_src, BoardMove(board_src, board_dest))
+
+    def test_validate(self):
+        board = self.board
+
+        # Two sources
+        self.assertInvalidMove(1, 2, None,
+                               'both a board source and a dugout source')
+
+        # Empty source
+        self.assertInvalidMove(None, (0, 0), None, 'Board source is empty')
+
+        # Invalid dugout piece
+        bottom_piece = self.player.dugout.pieces[0][0]
+
+        self.assertInvalidMove(bottom_piece, None, (0, 0),
+                               "Invalid dugout piece")
+
+        # No source 
+        self.assertInvalidMove(None, None, None, 'No source')
+
+        # Move a piece from the dugout to the board
+        piece = self.player.dugout.available_pieces()[0]
+        self.player.dugout.use_piece(piece)
+
+        board.cells[0][0].append(piece)
+
+        # No destination
+        self.assertInvalidMove(None, (0, 0), None, 'No destination')
+
+        # Make a piece owned by some other player and add it to the board
+        other_players_piece = deepcopy(piece)
+        other_players_piece.player = 'foo'
+
+        board.cells[1][1].append(other_players_piece)
+
+        self.assertInvalidMove(None, (1, 1), (2, 2), "other player's piece")
+
+        # Add a small piece to the board
+        small_piece = deepcopy(piece)
+        small_piece.size = piece.size - 1
+
+        board.cells[2][2].append(small_piece)
+
+        self.assertInvalidMove(None, (2, 2), (0, 0),
+                               'piece of equal or larger size')
+
+        # Valid moves
+        # Remember, these moves don't modify the state of the board,
+        # so try not to think of these as actually moving pieces,
+        # just validating possible moves.
+
+        # Take a large piece from the dugout and place it on an empty cell
+        self.assertValidMove(1, None, (0, 1))
+
+        # Take a small piece from the dugout and place it on an empty cell
+        self.assertValidMove(0, None, (0, 2))
+
+        # Move a large piece to an empty cell
+        self.assertValidMove(None, (0, 0), (0, 3))
+
+        # Move a small piece to an empty cell
+        self.assertValidMove(None, (2, 2), (0, 3))
+
+        # Move a large piece over an small piece
+        self.assertValidMove(None, (0, 0), (2, 2))
+
+    def test_check_horizontal_win(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        for x in range(board.size):
+            board.cells[0][x].append(piece)
+
+        self.assertTrue(self.player._check_win(board))
+
+    def test_check_vertical_win(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        for x in range(board.size):
+            board.cells[x][0].append(piece)
+
+        self.assertTrue(self.player._check_win(board))
+
+    def test_diagonal_a_win(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        board.cells[0][0].append(piece)
+        board.cells[1][1].append(piece)
+        board.cells[2][2].append(piece)
+        board.cells[3][3].append(piece)
+
+        self.assertTrue(self.player._check_win(board))
+
+    def test_diagonal_b_win(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        board.cells[0][3].append(piece)
+        board.cells[1][2].append(piece)
+        board.cells[2][1].append(piece)
+        board.cells[3][0].append(piece)
+
+        self.assertTrue(self.player._check_win(board))
+
+    def test_not_win(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+        self.assertFalse(self.player._check_win(board))
+
+        player_a = deepcopy(piece)
+        player_a.player = 'player a'
+
+        player_b = deepcopy(piece)
+        player_b.player = 'player b'
+
+        board.cells[0][0].append(player_a)
+        board.cells[0][1].append(player_a)
+        board.cells[0][2].append(player_a)
+        board.cells[0][3].append(player_b)
 
 '''
     def test_has_valid_move(self):
