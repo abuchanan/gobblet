@@ -134,7 +134,11 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
 
     def noop(self): pass
 
+    def assertAvailable(self, dugout, *args):
+        PieceAssertions.assertAvailable(self, dugout, id(self.player), *args)
+
     def setUp(self):
+        self.BoardMove = namedtuple('Move', 'src dest')
         self.board = gobblet.Board(4)
         self.sizes = ['small', 'large']
         self.player = gobblet.Player(self.noop, self.board, self.sizes, 2)
@@ -151,7 +155,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
 
         expected_names = ['large', 'large']
         expected_sizes = [1, 1]
-        self.assertAvailable(api, id(self.player), ['large'] * 2, [1] * 2)
+        self.assertAvailable(api, ['large'] * 2, [1] * 2)
 
         self.assertIsNone(api.move)
 
@@ -191,13 +195,13 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         self.assertEqual(board.cells[2][2], [])
 
     def assertInvalidMove(self, dugout_src, board_src, board_dest, regexp):
-        BoardMove = namedtuple('Move', 'src dest')
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
-            self.player._validate(dugout_src, BoardMove(board_src, board_dest))
+            board_move = self.BoardMove(board_src, board_dest)
+            self.player._validate(dugout_src, board_move)
 
     def assertValidMove(self, dugout_src, board_src, board_dest):
-        BoardMove = namedtuple('Move', 'src dest')
-        self.player._validate(dugout_src, BoardMove(board_src, board_dest))
+        board_move = self.BoardMove(board_src, board_dest)
+        self.player._validate(dugout_src, board_move)
 
     def test_validate(self):
         board = self.board
@@ -242,6 +246,11 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         board.cells[2][2].append(small_piece)
 
         self.assertInvalidMove(None, (2, 2), (0, 0),
+                               'piece of equal or larger size')
+
+        # Source and destination cannot be the same
+
+        self.assertInvalidMove(None, (0, 0), (0, 0),
                                'piece of equal or larger size')
 
         # Valid moves
@@ -320,36 +329,81 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         board.cells[0][2].append(player_a)
         board.cells[0][3].append(player_b)
 
-'''
-    def test_has_valid_move(self):
-        board = gobblet.Board(4)
-
-        # next_move defaults to None, so there is no valid move
-        self.assertFalse(board.has_valid_move())
-
-        # Set a valid move that adds piece of size 0 to an empty cell
-        board.set_move((0, 0), 0, 'player')
-        self.assertTrue(board.has_valid_move())
-
-        # Set a valid move that adds a piece of size 1 to a cell with a
-        # piece of size 0
-        board.cells[0][0].append((0, 'player'))
-        board.set_move((0, 0), 1, 'player')
-        self.assertTrue(board.has_valid_move())
-
-        # Now set an invalid move, where the piece is smaller than
-        # the piece already in that cell.
-        board.cells[0][0].append((2, 'player'))
-        board.set_move((0, 0), 0, 'player')
-        self.assertFalse(board.has_valid_move())
+        self.assertFalse(self.player._check_win(board))
 
     def test_commit(self):
-        board = gobblet.Board(4)
-        board.set_move((0, 0), 3, 'player')
-        board.commit()
-        self.assertEqual(board.cells[0][0], [(3, 'player')])
-'''
-        
+        piece = self.player.dugout.available_pieces()[0]
+
+        self.player._commit(piece, self.BoardMove(None, (0, 0)))
+
+        self.assertAvailable(self.player.dugout, ['small', 'large'], [0, 1])
+
+        self.assertEqual(self.board.cells, [
+            [[piece], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+        ])
+
+        self.player._commit(None, self.BoardMove((0, 0), (0, 1)))
+
+        self.assertAvailable(self.player.dugout, ['small', 'large'], [0, 1])
+
+        self.assertEqual(self.board.cells, [
+            [[], [piece], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+        ])
+
+    def test_commit_winner(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        for x in range(board.size - 1):
+            board.cells[0][x].append(piece)
+
+        with self.assertRaises(gobblet.Winner) as cm:
+            self.player._commit(piece, self.BoardMove(None, (0, 3)))
+
+        self.assertEqual(cm.exception.player, id(self.player))
+            
+    def test_commit_no_validation(self):
+        piece = self.player.dugout.available_pieces()[0]
+
+        self.player._commit(piece, self.BoardMove(None, (0, 0)))
+        # This should fail because it's trying to cover a piece
+        # of equal or larger size, but it won't because _commit() doesn't do
+        # any validation.
+        self.player._commit(piece, self.BoardMove(None, (0, 0)))
+
+    def test_winner_in_middle_of_move(self):
+        board = self.board
+        piece = self.player.dugout.available_pieces()[0]
+
+        player_a_piece = deepcopy(piece)
+        player_a_piece.player = 'player A'
+
+        player_b_piece = deepcopy(piece)
+        player_b_piece.player = self.player
+
+        board.cells[0][0].append(player_a_piece)
+        board.cells[0][1].append(player_a_piece)
+        board.cells[0][2].append(player_a_piece)
+
+        # This is the important part. In this cell, player B is covering
+        # player A's piece. When player B lifts up the piece, it will
+        # reveal player A's win.
+        board.cells[0][3].append(player_a_piece)
+        board.cells[0][3].append(player_b_piece)
+
+        with self.assertRaises(gobblet.Winner) as cm:
+            # Here player B lifts up the piece at (0, 3) with the intention
+            # of moving it somewhere else, but in the middle of the move
+            # player A wins.
+            self.player._commit(None, self.BoardMove((0, 3), (0, 0)))
+
+        self.assertEqual(cm.exception.player, 'player A')
 
 
 if __name__ == '__main__':

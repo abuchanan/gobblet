@@ -6,7 +6,10 @@ from functools import total_ordering
 #import math
 #print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
 
-class Winner(Exception): pass
+class Winner(Exception):
+    def __init__(self, player):
+        self.player = player
+
 
 class Board(object):
 
@@ -251,11 +254,15 @@ class Player(object):
             piece = self.board.get_cell(board_move.src).pop()
 
         # TODO check for opponent win only?
-        self._check_win()
+        winner = self._check_win(self.board)
+        if winner:
+            raise Winner(winner)
 
         self.board.get_cell(board_move.dest).append(piece)
 
-        self._check_win()
+        winner = self._check_win(self.board)
+        if winner:
+            raise Winner(winner)
 
     def move(self):
         board_API = self._BoardAPI()
