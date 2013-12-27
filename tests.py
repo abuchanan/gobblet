@@ -2,6 +2,8 @@ from collections import namedtuple
 from copy import deepcopy
 import unittest
 
+from mock import Mock
+
 import gobblet
 
 
@@ -404,6 +406,77 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
             self.player._commit(None, self.BoardMove((0, 3), (0, 0)))
 
         self.assertEqual(cm.exception.player, 'player A')
+
+    def test_alg_called_with_APIs(self):
+        alg = Mock()
+        player = gobblet.Player(alg, self.board, self.sizes, 2)
+
+        board_API = player._BoardAPI()
+        dugout_API = player._DugoutAPI()
+
+        player._BoardAPI = Mock(return_value=board_API)
+        player._DugoutAPI = Mock(return_value=dugout_API)
+
+        player._validate = Mock()
+        player._commit = Mock()
+
+        player.move()
+        alg.assert_called_once_with(board_API, dugout_API)
+
+    def test_move(self):
+        def alg(board, dugout):
+            # TODO the algorithm API sucks
+            piece = dugout.available_pieces()[0]
+            dugout.use_piece(piece)
+            board.set_move(None, (0, 0))
+
+        player = gobblet.Player(alg, self.board, self.sizes, 2)
+
+        player._validate = Mock()
+        player._commit = Mock(wraps=player._commit)
+
+        piece = player.dugout.available_pieces()[0]
+
+        player.move()
+
+        args = piece, self.BoardMove(None, (0, 0))
+        player._validate.assert_called_once_with(*args)
+        player._commit.assert_called_once_with(*args)
+
+        self.assertEqual(self.board.cells, [
+            [[piece], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+            [[], [], [], []],
+        ])
+
+
+class GameTestCase(unittest.TestCase):
+    def test_tick(self):
+        white_alg = Mock()
+        black_alg = Mock()
+
+        game = gobblet.Game(white_alg, black_alg)
+        self.assertEqual(game.on_deck, game.white)
+
+        # TODO it's odd that the game logic is duplicated on each Player
+        game.white._validate = Mock()
+        game.white._commit = Mock()
+
+        game.black._validate = Mock()
+        game.black._commit = Mock()
+
+        game.tick()
+
+        self.assertTrue(white_alg.called)
+        self.assertFalse(black_alg.called)
+
+        white_alg.reset_mock()
+        black_alg.reset_mock()
+        game.tick()
+
+        self.assertTrue(black_alg.called)
+        self.assertFalse(white_alg.called)
 
 
 if __name__ == '__main__':

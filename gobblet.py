@@ -243,7 +243,6 @@ class Player(object):
                 return winner
 
     def _commit(self, dugout_move, board_move):
-
         # Commit dugout
         if dugout_move is not None:
             self.dugout.use_piece(dugout_move)
@@ -267,15 +266,14 @@ class Player(object):
     def move(self):
         board_API = self._BoardAPI()
         dugout_API = self._DugoutAPI()
+
         self.algorithm(board_API, dugout_API)
 
-        board_move = board_API.move
+        board_move = board_API.get_move()
         dugout_move = dugout_API.move
 
-        # Validate moves
-        self._validate(board_move, dugout_move)
-
-        self._commit(board_move, dugout_move)
+        self._validate(dugout_move, board_move)
+        self._commit(dugout_move, board_move)
 
 
 class Forfeit(Exception): pass
@@ -283,29 +281,33 @@ class Forfeit(Exception): pass
 class InvalidMove(Exception): pass
 
 
-def play(white_algorithm, black_algorithm):
-    BOARD_SIZE = 4
-    # 0 is the smallest, 3 the biggest
-    PIECE_SIZES = [0, 1, 2, 3]
-    NUM_PIECES = 3
+class Game(object):
+    def __init__(self, white_algorithm, black_algorithm):
+        # TODO could allow these to be configured
+        BOARD_SIZE = 4
+        # 0 is the smallest, 3 the biggest
+        PIECE_SIZES = [0, 1, 2, 3]
+        NUM_PIECES = 3
 
-    board = Board(BOARD_SIZE)
+        board = Board(BOARD_SIZE)
 
-    white = Player(white_algorithm, board, PIECE_SIZES, NUM_PIECES)
+        self.white = Player(white_algorithm, board, PIECE_SIZES, NUM_PIECES)
+        self.black = Player(black_algorithm, board, PIECE_SIZES, NUM_PIECES)
 
-    on_deck = white
-    not_on_deck = lambda: white if black is on_deck else white
+        self.on_deck = self.white
 
-    while True:
+    def _not_on_deck(self):
+        return self.white if self.black is self.on_deck else self.black
+
+    def tick(self):
         try:
-            on_deck.move()
-
+            self.on_deck.move()
         except Forfeit:
-            return not_on_deck()
-        except board.Winner as e:
+            return self._not_on_deck()
+        except Winner as e:
             return e.player
 
-        on_deck = not_on_deck()
+        self.on_deck = self._not_on_deck()
 
 
 def random_player(board, dugout): pass
