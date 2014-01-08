@@ -20,11 +20,11 @@ class BoardTestCase(unittest.TestCase):
         board = gobblet.Board(4)
         self.assertEqual(board.cells[0][0], [])
 
-    def test_get_column(self):
+    def testget_column(self):
         board = gobblet.Board(4)
         board.cells[0][1].append('foo')
         board.cells[3][1].append('bar')
-        self.assertEqual(board._get_column(1), [['foo'], [], [], ['bar']])
+        self.assertEqual(board.get_column(1), [['foo'], [], [], ['bar']])
 
     def test_get_cell(self):
         board = gobblet.Board(4)
@@ -45,9 +45,9 @@ class BoardTestCase(unittest.TestCase):
 class PieceTestCase(unittest.TestCase):
 
     def test_piece(self):
-        large = gobblet.Piece('player', 'large', 3)
-        large_2 = gobblet.Piece('player two', 'large two', 3)
-        small = gobblet.Piece('player', 'small', 1)
+        large = gobblet.Piece('player', 3)
+        large_2 = gobblet.Piece('player two', 3)
+        small = gobblet.Piece('player', 1)
         # TODO maybe remove total_ordering on Pieces
         #      could just use the more explicit "a.size > b.size"
         self.assertTrue(large > small)
@@ -56,17 +56,14 @@ class PieceTestCase(unittest.TestCase):
 
 
 class PieceAssertions(object):
-    def assertPieces(self, piece_list, player, names, sizes):
-        self.assertEqual(len(piece_list), len(names))
+    def assertPieces(self, piece_list, player, sizes):
+        self.assertEqual(len(piece_list), len(sizes))
 
-        names = []
         size_values = []
         for piece in piece_list:
-            names.append(piece.name)
             size_values.append(piece.size)
             self.assertEqual(piece.player, player)
 
-        self.assertEqual(names, names)
         self.assertEqual(size_values, sizes)
 
     def assertAvailable(self, dugout, *args):
@@ -78,37 +75,35 @@ class DugoutTestCase(unittest.TestCase, PieceAssertions):
 
     def setUp(self):
         player = 'sally'
-        size_names = ['small', 'medium', 'large']
         num_stacks = 2
-        self.dugout = gobblet.Dugout(player, size_names, num_stacks)
+        self.dugout = gobblet.Dugout(player, [0, 1, 2], num_stacks)
 
     def assertAvailable(self, *args):
         PieceAssertions.assertAvailable(self, self.dugout, 'sally', *args)
         
     def test_init(self):
-        expected_names = ['small', 'medium', 'large']
         expected_sizes = [0, 1, 2]
         for stack in self.dugout.pieces:
-            self.assertPieces(stack, 'sally', expected_names, expected_sizes)
+            self.assertPieces(stack, 'sally', expected_sizes)
 
     def test_available_pieces(self):
-        self.assertAvailable(['large', 'large'], [2, 2])
+        self.assertAvailable([2, 2])
 
         self.dugout.pieces[0].pop()
-        self.assertAvailable(['medium', 'large'], [1, 2])
+        self.assertAvailable([1, 2])
 
     def test_use_piece(self):
         self.dugout.use_piece(2)
-        self.assertAvailable(['medium', 'large'], [1, 2])
+        self.assertAvailable([1, 2])
 
         self.dugout.use_piece(2)
-        self.assertAvailable(['medium', 'medium'], [1, 1])
+        self.assertAvailable([1, 1])
 
         self.dugout.use_piece(self.dugout.available_pieces()[0])
-        self.assertAvailable(['small', 'medium'], [0, 1])
+        self.assertAvailable([0, 1])
 
         self.dugout.use_piece(self.dugout.available_pieces()[0])
-        self.assertAvailable(['medium'], [1])
+        self.assertAvailable([1])
 
     def test_use_piece_copy(self):
         # The Player class has a DugoutAPI that copies the pieces to avoid
@@ -120,7 +115,7 @@ class DugoutTestCase(unittest.TestCase, PieceAssertions):
 
         self.dugout.use_piece(piece_copy)
 
-        self.assertAvailable(['medium', 'large'], [1, 2])
+        self.assertAvailable([1, 2])
 
     def test_NoSuchPiece(self):
         with self.assertRaises(self.dugout.NoSuchPiece):
@@ -132,32 +127,11 @@ class DugoutTestCase(unittest.TestCase, PieceAssertions):
 
 
 
-class PlayerTestCase(unittest.TestCase, PieceAssertions):
-
-    def noop(self): pass
-
-    def assertAvailable(self, dugout, *args):
-        PieceAssertions.assertAvailable(self, dugout, id(self.player), *args)
-
-    def setUp(self):
-        self.BoardMove = namedtuple('Move', 'src dest')
-        self.board = gobblet.Board(4)
-        self.sizes = ['small', 'large']
-        self.player = gobblet.Player(self.noop, self.board, self.sizes, 2)
-        
-    def test_init(self):
-        # The player given to the Dugout is an object ID. This allows
-        # the Dugout pieces to be easily copied and still compare to
-        # the original player.
-        piece = self.player.dugout.pieces[0][0]
-        self.assertEqual(piece.player, id(self.player))
-
+class DugoutAPITestCase(unittest.TestCase):
     def test_DugoutAPI(self):
         api = self.player._DugoutAPI()
 
-        expected_names = ['large', 'large']
-        expected_sizes = [1, 1]
-        self.assertAvailable(api, ['large'] * 2, [1] * 2)
+        self.assertAvailable(api, [1, 2])
 
         self.assertIsNone(api.move)
 
@@ -175,6 +149,8 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         with self.assertRaises(AttributeError):
             api.pieces
 
+
+class BoardAPITestCase(unittest.TestCase):
     def test_BoardAPI(self):
         board = self.board
         api = self.player._BoardAPI()
@@ -195,6 +171,33 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         # Public modification of the internal board via the API is prevented.
         api.get_cell((2, 2)).append(3)
         self.assertEqual(board.cells[2][2], [])
+
+
+class PlayerTestCase(unittest.TestCase, PieceAssertions):
+
+    def noop(self): pass
+
+    def assertAvailable(self, dugout, *args):
+        PieceAssertions.assertAvailable(self, dugout, self.player_name, *args)
+
+    def setUp(self):
+        self.BoardMove = namedtuple('Move', 'src dest')
+        self.board = gobblet.Board(4)
+
+        self.player_name = 'sally'
+        sizes = [1, 2]
+        num_stacks = 2
+        self.dugout = gobblet.Dugout(self.player_name, sizes, num_stacks)
+
+        self.player = gobblet.Player(self.player_name, self.noop, self.board,
+                                     self.dugout)
+        
+    def test_init(self):
+        # The player given to the Dugout is an object ID. This allows
+        # the Dugout pieces to be easily copied and still compare to
+        # the original player.
+        piece = self.player.dugout.pieces[0][0]
+        self.assertEqual(piece.player, self.player_name)
 
     def assertInvalidMove(self, dugout_src, board_src, board_dest, regexp):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
@@ -338,7 +341,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
 
         self.player._commit(piece, self.BoardMove(None, (0, 0)))
 
-        self.assertAvailable(self.player.dugout, ['small', 'large'], [0, 1])
+        self.assertAvailable(self.player.dugout, [0, 1])
 
         self.assertEqual(self.board.cells, [
             [[piece], [], [], []],
@@ -349,7 +352,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
 
         self.player._commit(None, self.BoardMove((0, 0), (0, 1)))
 
-        self.assertAvailable(self.player.dugout, ['small', 'large'], [0, 1])
+        self.assertAvailable(self.player.dugout, [0, 1])
 
         self.assertEqual(self.board.cells, [
             [[], [piece], [], []],
@@ -368,7 +371,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
         with self.assertRaises(gobblet.Winner) as cm:
             self.player._commit(piece, self.BoardMove(None, (0, 3)))
 
-        self.assertEqual(cm.exception.player, id(self.player))
+        self.assertEqual(cm.exception.player, self.player_name)
             
     def test_commit_no_validation(self):
         piece = self.player.dugout.available_pieces()[0]
@@ -409,7 +412,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
 
     def test_alg_called_with_APIs(self):
         alg = Mock()
-        player = gobblet.Player(alg, self.board, self.sizes, 2)
+        player = gobblet.Player(self.player_name, alg, self.board, self.dugout)
 
         board_API = player._BoardAPI()
         dugout_API = player._DugoutAPI()
@@ -430,7 +433,7 @@ class PlayerTestCase(unittest.TestCase, PieceAssertions):
             dugout.use_piece(piece)
             board.set_move(None, (0, 0))
 
-        player = gobblet.Player(alg, self.board, self.sizes, 2)
+        player = gobblet.Player(self.player_name, alg, self.board, self.dugout)
 
         player._validate = Mock()
         player._commit = Mock(wraps=player._commit)
