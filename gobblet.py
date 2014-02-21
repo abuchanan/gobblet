@@ -15,14 +15,14 @@ class Board(object):
 
     def __init__(self, size):
         self.size = size
-        # This probably looks funny, but it's simply creating a square board,
-        # with "size" columns and row, where each cell is a list.
+        # Create a square board with "size" columns and rows,
+        # where each cell is a list.
         self.cells = []
         for row_i in range(size):
             row = []
             self.cells.append(row)
 
-            for col in range(size):
+            for col_i in range(size):
                 row.append([])
 
     def _get_column(self, col):
@@ -55,7 +55,7 @@ class Dugout(object):
 
     class NoSuchPiece(Exception): pass
 
-    def __init__(self, player, sizes, num_stacks):
+    def __init__(self):
         # The "dugout" represents a player's pieces that are not on the board,
         # stored as a list of lists, e.g.
         #
@@ -72,18 +72,14 @@ class Dugout(object):
         #
         # Pieces must be accessed in order, from largest to smallest, i.e.
         # popped off each stack.
-        self.pieces = []
-        for x in range(num_stacks):
-            stack = []
-            self.pieces.append(stack)
+        self._stacks = []
 
-            for size, name in enumerate(sizes):
-                piece = Piece(player, name, size)
-                stack.append(piece)
+    def add_stack(self, stack):
+        self._stacks.append(list(stack))
 
     def available_pieces(self):
         available = []
-        for stack in self.pieces:
+        for stack in self._stacks:
             if stack:
                 available.append(stack[-1])
         return available
@@ -92,114 +88,142 @@ class Dugout(object):
         if piece not in self.available_pieces():
             raise self.NoSuchPiece(piece)
 
-        for stack in self.pieces:
+        for stack in self._stacks:
             if stack and stack[-1] == piece:
                 return stack.pop()
 
 
 class Player(object):
 
-    def __init__(self, algorithm, board, sizes, num_each):
+    def __init__(self, name, algorithm):
+        self.name = name
         self.algorithm = algorithm
-        self.board = board
+        self.dugout = Dugout()
 
-        # The player given to the Dugout is an object ID. This allows
-        # the Dugout pieces to be easily copied and still compare to
-        # the original player.
-        self.dugout = Dugout(id(self), sizes, num_each)
 
-    def _DugoutAPI(self):
-        # Just for clarity, so there's no confusion with "self"
-        # in the inner class below.
-        dugout = self.dugout
+def DugoutAPI(dugout):
 
-        # This is providing a public API that can be used by Players instances;
-        # not strictly necessary, but it's nice to not worry about the players
-        # messing with the dugout data structure.
-        class _API(object):
-            def __init__(api):
-                api.move = None
+    # This is providing a public API that can be used by Players instances;
+    # not strictly necessary, but it's nice to not worry about the players
+    # messing with the dugout data structure.
+    class _API(object):
+        def __init__(api):
+            api.move = None
 
-            def available_pieces(api):
-                # Copy the pieces to prevent public modification.
-                #
-                # TODO a lightweight wrapper could be used instead
-                #      if performance is needed, but for now it's too complex.
-                return deepcopy(dugout.available_pieces())
-                
-            def use_piece(api, piece):
-                api.move = piece
-                
-        return _API()
+        def available_pieces(api):
+            # Copy the pieces to prevent public modification.
+            #
+            # TODO a lightweight wrapper could be used instead
+            #      if performance is needed, but for now it's too complex.
+            return deepcopy(dugout.available_pieces())
+            
+        def use_piece(api, piece):
+            api.move = piece
+            
+    return _API()
 
-    def _BoardAPI(self):
-        # Just for clarity, so there's no confusion with "self"
-        # in the inner class below.
-        board = self.board
 
-        Move = namedtuple('Move', 'src dest')
+def BoardAPI(board):
+    Move = namedtuple('Move', 'src dest')
 
-        # This is providing a public API that can be used by Players instances;
-        # not strictly necessary, but it's nice to not worry about the players
-        # messing with the board data structure.
-        class _API(object):
-            def __init__(api):
-                api.set_move(None, None)
-                
-            def get_cell(api, key):
-                # Copy the cell to prevent public modification.
-                #
-                # TODO a lightweight wrapper could be used instead
-                #      if performance is needed, but for now it's too complex.
-                return deepcopy(board.get_cell(key))
+    # This is providing a public API that can be used by Players instances;
+    # not strictly necessary, but it's nice to not worry about the players
+    # messing with the board data structure.
+    class _API(object):
+        def __init__(api):
+            api.set_move(None, None)
+            
+        def get_cell(api, key):
+            # Copy the cell to prevent public modification.
+            #
+            # TODO a lightweight wrapper could be used instead
+            #      if performance is needed, but for now it's too complex.
+            return deepcopy(board.get_cell(key))
 
-            def get_move(api):
-                return api._move
+        def get_move(api):
+            return api._move
 
-            def set_move(api, src, dest):
-                api._move = Move(src, dest)
+        def set_move(api, src, dest):
+            api._move = Move(src, dest)
 
-            @property
-            def size(api):
-                return board.size
+        @property
+        def size(api):
+            return board.size
 
-        return _API()
+    return _API()
 
-    def _validate(self, dugout_move, board_move):
 
-        def _invalid(msg):
+
+class Forfeit(Exception): pass
+
+class InvalidMove(Exception): pass
+
+
+class Game(object):
+
+    BOARD_SIZE = 4
+    # 0 is the smallest, 3 the largest
+    PIECE_SIZES = [
+        ('smallest', 0),
+        ('small', 1),
+        ('large', 2),
+        ('largest', 3),
+    ]
+    NUM_STACKS = 3
+
+    def __init__(self, white_algorithm, black_algorithm):
+        self.board = Board(self.BOARD_SIZE)
+        self.white = self._make_player('white', white_algorithm)
+        self.black = self._make_player('black', black_algorithm)
+        self.on_deck, self.off_deck = self.white, self.black
+
+    def _make_player(self, name, algorithm):
+        player = Player(name, algorithm)
+
+        for stack_i in range(self.NUM_STACKS):
+            stack = []
+
+            for name, size in self.PIECE_SIZES:
+                piece = Piece(player, name, size)
+                stack.append(piece)
+            player.dugout.add_stack(stack)
+        return player
+
+    def _validate(self, player, dugout_move, board_move):
+
+        def invalid(msg):
             raise InvalidMove(msg)
 
         if board_move.src is not None and dugout_move is not None:
-            _invalid("Can't have both a board source and a dugout source")
+            invalid("Can't have both a board source and a dugout source")
 
         if board_move.src is not None:
             src = self.board.get_cell(board_move.src)
 
             if not src:
-                _invalid("Board source is empty")
+                invalid("Board source is empty")
 
             src_piece = src[-1]
 
-            if src_piece.player != id(self):
-                _invalid("Can't move other player's piece")
+            if src_piece.player != player:
+                invalid("Can't move other player's piece")
 
         elif dugout_move is not None:
-            if dugout_move not in self.dugout.available_pieces():
-                _invalid("Invalid dugout piece")
+            if dugout_move not in player.dugout.available_pieces():
+                invalid("Invalid dugout piece")
 
             src_piece = dugout_move
 
         else:
-            _invalid("No source given.")
+            invalid("No source given.")
 
         if board_move.dest is None:
-            _invalid("No destination given.")
+            invalid("No destination given.")
 
         dest = self.board.get_cell(board_move.dest)
 
         if dest and dest[-1] >= src_piece:
-            _invalid("Can't cover a piece of equal or larger size")
+            invalid("Can't cover a piece of equal or larger size")
 
     def _check_win(self, board):
 
@@ -242,10 +266,10 @@ class Player(object):
             if winner:
                 return winner
 
-    def _commit(self, dugout_move, board_move):
+    def _commit(self, player, dugout_move, board_move):
         # Commit dugout
         if dugout_move is not None:
-            self.dugout.use_piece(dugout_move)
+            player.dugout.use_piece(dugout_move)
             piece = dugout_move
 
         # Commit board
@@ -263,51 +287,27 @@ class Player(object):
         if winner:
             raise Winner(winner)
 
-    def move(self):
-        board_API = self._BoardAPI()
-        dugout_API = self._DugoutAPI()
+    def move(self, player):
+        board_API = BoardAPI(self.board)
+        dugout_API = DugoutAPI(player.dugout)
 
-        self.algorithm(board_API, dugout_API)
+        player.algorithm(board_API, dugout_API)
 
         board_move = board_API.get_move()
         dugout_move = dugout_API.move
 
-        self._validate(dugout_move, board_move)
-        self._commit(dugout_move, board_move)
-
-
-class Forfeit(Exception): pass
-
-class InvalidMove(Exception): pass
-
-
-class Game(object):
-    def __init__(self, white_algorithm, black_algorithm):
-        # TODO could allow these to be configured
-        BOARD_SIZE = 4
-        # 0 is the smallest, 3 the biggest
-        PIECE_SIZES = [0, 1, 2, 3]
-        NUM_PIECES = 3
-
-        board = Board(BOARD_SIZE)
-
-        self.white = Player(white_algorithm, board, PIECE_SIZES, NUM_PIECES)
-        self.black = Player(black_algorithm, board, PIECE_SIZES, NUM_PIECES)
-
-        self.on_deck = self.white
-
-    def _not_on_deck(self):
-        return self.white if self.black is self.on_deck else self.black
+        self._validate(player, dugout_move, board_move)
+        self._commit(player, dugout_move, board_move)
 
     def tick(self):
         try:
-            self.on_deck.move()
+            self.move(self.on_deck)
         except Forfeit:
-            return self._not_on_deck()
+            return self.off_deck
         except Winner as e:
             return e.player
 
-        self.on_deck = self._not_on_deck()
+        self.on_deck, self.off_deck = self.off_deck, self.on_deck
 
 
 def random_player(board, dugout): pass
