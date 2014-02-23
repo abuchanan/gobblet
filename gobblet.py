@@ -3,12 +3,46 @@ from copy import deepcopy
 from functools import total_ordering
 
 
+@total_ordering
+class Size(object):
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+    def __eq__(self, other):
+        return isinstance(other, Size) and self.value == other.value
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+    def __repr__(self):
+        return 'Size({}, {})'.format(self.name, self.value)
+        
+        
+class Sizes:
+    xs = Size('extra small', 0)
+    sm = Size('small', 1)
+    lg = Size('large', 2)
+    xl = Size('extra large', 3)
+
+    all = [xs, sm, lg, xl]
+
 #import math
 #print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
 
-class Winner(Exception):
-    def __init__(self, player):
+
+
+@total_ordering
+class Piece(object):
+    def __init__(self, player, size):
         self.player = player
+        self.size = size
+
+    def __eq__(self, other):
+        return isinstance(other, Piece) and self.size == other.size
+
+    def __lt__(self, other):
+        return self.size < other.size
 
 
 class Board(object):
@@ -33,29 +67,11 @@ class Board(object):
         return self.cells[row][col]
 
 
-@total_ordering
-class Piece(object):
-    def __init__(self, player, name, size):
-        self.player = player
-        self.name = name
-        self.size = size
-
-    def __eq__(self, other):
-        if isinstance(other, int):
-            return self.size == other
-        return self.size == other.size
-
-    def __lt__(self, other):
-        if isinstance(other, int):
-            return self.size < other
-        return self.size < other.size
-
-
 class Dugout(object):
 
     class NoSuchPiece(Exception): pass
 
-    def __init__(self):
+    def __init__(self, player, sizes, num_stacks):
         # The "dugout" represents a player's pieces that are not on the board,
         # stored as a list of lists, e.g.
         #
@@ -72,14 +88,18 @@ class Dugout(object):
         #
         # Pieces must be accessed in order, from largest to smallest, i.e.
         # popped off each stack.
-        self._stacks = []
+        self.stacks = []
+        for stack_i in range(num_stacks):
+            stack = []
+            self.stacks.append(stack)
 
-    def add_stack(self, stack):
-        self._stacks.append(list(stack))
+            for size in sizes:
+                piece = Piece(player, size)
+                stack.append(piece)
 
     def available_pieces(self):
         available = []
-        for stack in self._stacks:
+        for stack in self.stacks:
             if stack:
                 available.append(stack[-1])
         return available
@@ -88,17 +108,9 @@ class Dugout(object):
         if piece not in self.available_pieces():
             raise self.NoSuchPiece(piece)
 
-        for stack in self._stacks:
+        for stack in self.stacks:
             if stack and stack[-1] == piece:
                 return stack.pop()
-
-
-class Player(object):
-
-    def __init__(self, name, algorithm):
-        self.name = name
-        self.algorithm = algorithm
-        self.dugout = Dugout()
 
 
 def DugoutAPI(dugout):
@@ -153,41 +165,38 @@ def BoardAPI(board):
     return _API()
 
 
+class Player(object):
+
+    def __init__(self, name, algorithm, dugout):
+        self.name = name
+        self.algorithm = algorithm
+        self.dugout = dugout
+
 
 class Forfeit(Exception): pass
 
 class InvalidMove(Exception): pass
 
+class Winner(Exception):
+    def __init__(self, player):
+        self.player = player
+
 
 class Game(object):
 
     BOARD_SIZE = 4
-    # 0 is the smallest, 3 the largest
-    PIECE_SIZES = [
-        ('smallest', 0),
-        ('small', 1),
-        ('large', 2),
-        ('largest', 3),
-    ]
     NUM_STACKS = 3
 
     def __init__(self, white_algorithm, black_algorithm):
         self.board = Board(self.BOARD_SIZE)
-        self.white = self._make_player('white', white_algorithm)
-        self.black = self._make_player('black', black_algorithm)
+
+        white_dugout = Dugout('white', Sizes.all, self.NUM_STACKS)
+        self.white = Player('white', white_algorithm, white_dugout)
+
+        black_dugout = Dugout('black', Sizes.all, self.NUM_STACKS)
+        self.black = Player('black', black_algorithm, black_dugout)
+
         self.on_deck, self.off_deck = self.white, self.black
-
-    def _make_player(self, name, algorithm):
-        player = Player(name, algorithm)
-
-        for stack_i in range(self.NUM_STACKS):
-            stack = []
-
-            for name, size in self.PIECE_SIZES:
-                piece = Piece(player, name, size)
-                stack.append(piece)
-            player.dugout.add_stack(stack)
-        return player
 
     def _validate(self, player, dugout_move, board_move):
 
