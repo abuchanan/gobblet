@@ -1,5 +1,4 @@
 from collections import namedtuple
-from copy import deepcopy
 from functools import total_ordering
 
 
@@ -31,18 +30,10 @@ class Sizes:
 #print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
 
 
-
-@total_ordering
 class Piece(object):
     def __init__(self, player, size):
         self.player = player
         self.size = size
-
-    def __eq__(self, other):
-        return isinstance(other, Piece) and self.size == other.size
-
-    def __lt__(self, other):
-        return self.size < other.size
 
 
 class Board(object):
@@ -66,8 +57,24 @@ class Board(object):
         row, col = pos
         return self.cells[row][col]
 
+    def available_pieces(self):
+        available = []
+        for row in self.cells:
+            for cell in row:
+                if cell:
+                    available.append(cell[-1])
+        return available
+
+    def find(self, piece):
+        for row_i, row in enumerate(self.cells):
+            for col_i, cell in enumerate(row):
+                if cell and cell[-1] is piece:
+                    return row_i, col_i
+
 
 class Dugout(object):
+
+    Piece = Piece
 
     class NoSuchPiece(Exception): pass
 
@@ -94,7 +101,7 @@ class Dugout(object):
             self.stacks.append(stack)
 
             for size in sizes:
-                piece = Piece(player, size)
+                piece = self.Piece(player, size)
                 stack.append(piece)
 
     def available_pieces(self):
@@ -112,57 +119,6 @@ class Dugout(object):
             if stack and stack[-1] == piece:
                 return stack.pop()
 
-
-def DugoutAPI(dugout):
-
-    # This is providing a public API that can be used by Players instances;
-    # not strictly necessary, but it's nice to not worry about the players
-    # messing with the dugout data structure.
-    class _API(object):
-        def __init__(api):
-            api.move = None
-
-        def available_pieces(api):
-            # Copy the pieces to prevent public modification.
-            #
-            # TODO a lightweight wrapper could be used instead
-            #      if performance is needed, but for now it's too complex.
-            return deepcopy(dugout.available_pieces())
-            
-        def use_piece(api, piece):
-            api.move = piece
-            
-    return _API()
-
-
-def BoardAPI(board):
-    Move = namedtuple('Move', 'src dest')
-
-    # This is providing a public API that can be used by Players instances;
-    # not strictly necessary, but it's nice to not worry about the players
-    # messing with the board data structure.
-    class _API(object):
-        def __init__(api):
-            api.set_move(None, None)
-            
-        def get_cell(api, key):
-            # Copy the cell to prevent public modification.
-            #
-            # TODO a lightweight wrapper could be used instead
-            #      if performance is needed, but for now it's too complex.
-            return deepcopy(board.get_cell(key))
-
-        def get_move(api):
-            return api._move
-
-        def set_move(api, src, dest):
-            api._move = Move(src, dest)
-
-        @property
-        def size(api):
-            return board.size
-
-    return _API()
 
 
 class Player(object):
@@ -198,41 +154,36 @@ class Game(object):
 
         self.on_deck, self.off_deck = self.white, self.black
 
-    def _validate(self, player, dugout_move, board_move):
+    def _validate(self, player, piece, dest):
 
-        def invalid(msg):
-            raise InvalidMove(msg)
+        if piece is None:
+            raise InvalidMove("Must provide a source piece")
 
-        if board_move.src is not None and dugout_move is not None:
-            invalid("Can't have both a board source and a dugout source")
+        if dest is None:
+            raise InvalidMove('Must provide a destination')
 
-        if board_move.src is not None:
-            src = self.board.get_cell(board_move.src)
+        try:
+            dest = int(dest[0]), int(dest[1])
+        except ValueError:
+            raise InvalidMove("Invalid destination")
 
-            if not src:
-                invalid("Board source is empty")
+        if (piece not in player.dugout.available_pieces() and
+            piece not in self.board.available_pieces()):
+            raise InvalidMove("Source piece is not available")
 
-            src_piece = src[-1]
+        try:
+            dest_cell = self.board.get_cell(dest)
+        except IndexError:
+            raise InvalidMove("Invalid destination")
 
-            if src_piece.player != player:
-                invalid("Can't move other player's piece")
+        source_pos = self.board.find(piece)
 
-        elif dugout_move is not None:
-            if dugout_move not in player.dugout.available_pieces():
-                invalid("Invalid dugout piece")
+        if source_pos and source_pos == dest:
+            raise InvalidMove("Cannot move a piece to the same cell")
 
-            src_piece = dugout_move
-
-        else:
-            invalid("No source given.")
-
-        if board_move.dest is None:
-            invalid("No destination given.")
-
-        dest = self.board.get_cell(board_move.dest)
-
-        if dest and dest[-1] >= src_piece:
-            invalid("Can't cover a piece of equal or larger size")
+        if dest_cell and piece.size <= dest_cell[-1].size:
+            raise InvalidMove("Can't cover a piece of equal or larger size")
+            
 
     def _check_win(self, board):
 
@@ -275,38 +226,28 @@ class Game(object):
             if winner:
                 return winner
 
-    def _commit(self, player, dugout_move, board_move):
-        # Commit dugout
-        if dugout_move is not None:
-            player.dugout.use_piece(dugout_move)
-            piece = dugout_move
+    def _commit(self, player, piece, dest):
+        try:
+            player.dugout.use_piece(piece)
+        except player.dugout.NoSuchPiece:
+            pos = self.board.find(piece)
+            self.board.get_cell(pos).pop()
 
-        # Commit board
-        if board_move.src is not None:
-            piece = self.board.get_cell(board_move.src).pop()
-
-        # TODO check for opponent win only?
         winner = self._check_win(self.board)
         if winner:
             raise Winner(winner)
 
-        self.board.get_cell(board_move.dest).append(piece)
+        self.board.get_cell(dest).append(piece)
 
         winner = self._check_win(self.board)
         if winner:
             raise Winner(winner)
 
     def move(self, player):
-        board_API = BoardAPI(self.board)
-        dugout_API = DugoutAPI(player.dugout)
+        piece, dest = player.algorithm(self.board, player.dugout)
 
-        player.algorithm(board_API, dugout_API)
-
-        board_move = board_API.get_move()
-        dugout_move = dugout_API.move
-
-        self._validate(player, dugout_move, board_move)
-        self._commit(player, dugout_move, board_move)
+        self._validate(player, piece, dest)
+        self._commit(player, piece, dest)
 
     def tick(self):
         try:
