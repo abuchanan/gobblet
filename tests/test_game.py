@@ -76,6 +76,106 @@ class GameTestCase(unittest.TestCase):
         self.assertEqual(game.tick(), None)
         self.assertEqual(game.tick(), game.white)
 
+    def test_horizontal_win(self):
+        game = gobblet.Game(Mock(), Mock())
+
+        for x in range(game.board.size):
+            piece = game.white.dugout.available_pieces().pop()
+            game.white.dugout.use_piece(piece)
+            game.board.cells[0][x].append(piece)
+
+        self.assertTrue(game._check_win(game.board))
+
+    def test_vertical_win(self):
+        game = gobblet.Game(Mock(), Mock())
+
+        for x in range(game.board.size):
+            piece = game.white.dugout.available_pieces().pop()
+            game.white.dugout.use_piece(piece)
+            game.board.cells[x][0].append(piece)
+
+        self.assertTrue(game._check_win(game.board))
+
+    def test_diagonal_a_win(self):
+        game = gobblet.Game(Mock(), Mock())
+        board = game.board
+        piece = game.white.dugout.available_pieces()[0]
+
+        board.cells[0][0].append(piece)
+        board.cells[1][1].append(piece)
+        board.cells[2][2].append(piece)
+        board.cells[3][3].append(piece)
+
+        self.assertTrue(game._check_win(board))
+
+    def test_diagonal_b_win(self):
+        game = gobblet.Game(Mock(), Mock())
+        board = game.board
+        piece = game.white.dugout.available_pieces()[0]
+
+        board.cells[0][3].append(piece)
+        board.cells[1][2].append(piece)
+        board.cells[2][1].append(piece)
+        board.cells[3][0].append(piece)
+
+        self.assertTrue(game._check_win(board))
+
+
+    def test_not_win(self):
+        game = gobblet.Game(Mock(), Mock())
+        board = game.board
+        piece = game.white.dugout.available_pieces()[0]
+
+        self.assertFalse(game._check_win(board))
+
+        board.cells[0][0].append(piece)
+        board.cells[0][1].append(piece)
+        board.cells[0][2].append(piece)
+
+        piece = game.black.dugout.available_pieces()[0]
+        board.cells[0][3].append(piece)
+
+        self.assertFalse(game._check_win(board))
+
+    def test_commit_winner(self):
+        game = gobblet.Game(Mock(), Mock())
+        board = game.board
+        piece = game.white.dugout.available_pieces()[0]
+
+        for x in range(board.size - 1):
+            board.cells[0][x].append(piece)
+
+        with self.assertRaises(gobblet.Winner) as cm:
+            game._commit(game.white, piece, (0, 3))
+
+        self.assertEqual(cm.exception.player, 'white')
+            
+    def test_winner_in_middle_of_move(self):
+        game = gobblet.Game(Mock(), Mock())
+        board = game.board
+
+        white_piece = game.white.dugout.available_pieces()[0]
+
+        board.cells[0][0].append(white_piece)
+        board.cells[0][1].append(white_piece)
+        board.cells[0][2].append(white_piece)
+        board.cells[0][3].append(white_piece)
+
+        # This is the important part. In this cell, black is covering
+        # white's piece. When black lifts up the piece, it will
+        # reveal white A's win.
+        black_piece = game.black.dugout.available_pieces()[0]
+        game.black.dugout.use_piece(black_piece)
+        board.cells[0][3].append(black_piece)
+
+        with self.assertRaises(gobblet.Winner) as cm:
+            # Here black lifts up the piece at (0, 3) with the intention
+            # of moving it somewhere else, but in the middle of the move
+            # white wins.
+            game._commit(game.black, black_piece, (0, 0))
+
+        self.assertEqual(cm.exception.player, 'white')
+
 
 class InvalidTestCase(unittest.TestCase):
     """Test cases where the player algorithm returns an invalid move"""
