@@ -167,6 +167,11 @@ class Game(object):
         except ValueError:
             raise InvalidMove("Invalid destination")
 
+        # TODO possibly the algoritm just made a mistake referencing the piece
+        #      like I just did with board.cells[0][0]
+        #      (what I really wanted was board.cells[0][0][-1])
+        #      make the API easier, but also give more informative errors
+        #      such as "You didn't return a piece"
         if (piece not in player.dugout.available_pieces() and
             piece not in self.board.available_pieces()):
             raise InvalidMove("Source piece is not available")

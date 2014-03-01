@@ -76,39 +76,14 @@ class GameTestCase(unittest.TestCase):
         self.assertEqual(game.tick(), None)
         self.assertEqual(game.tick(), game.white)
 
-    def test_simple_valid_move(self):
 
-        def white_alg(board, dugout):
-            return dugout.available_pieces()[0], (0, 0)
+class InvalidTestCase(unittest.TestCase):
+    """Test cases where the player algorithm returns an invalid move"""
 
-        black_alg = Mock()
-
-        game = gobblet.Game(white_alg, black_alg)
-        game._validate = Mock(wraps=game._validate)
-        game._commit = Mock(wraps=game._commit)
-
-        piece = game.white.dugout.available_pieces()[0]
-
-        game.tick()
-
-        args = game.white, piece, (0, 0)
-        game._validate.assert_called_once_with(*args)
-        game._commit.assert_called_once_with(*args)
-
-        self.assertEqual(game.board.cells, [
-            [[piece], [], [], []],
-            [[], [], [], []],
-            [[], [], [], []],
-            [[], [], [], []],
-        ])
-
-
-class ValidationTestCase(unittest.TestCase):
-
-    def test_invalid_return_value(self):
+    def test_bad_return_value(self):
         pass
 
-    def test_invalid_source_piece_is_None(self):
+    def test_source_piece_is_None(self):
         def alg(board, dugout):
             return None, (0, 0)
 
@@ -118,7 +93,7 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def test_invalid_destination_is_None(self):
+    def test_destination_is_None(self):
         def alg(board, dugout):
             return dugout.available_pieces()[0], None
 
@@ -128,7 +103,7 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def test_invalid_destination_out_of_bounds(self):
+    def test_destination_out_of_bounds(self):
         def alg(board, dugout):
             return dugout.available_pieces()[0], (5, 5)
 
@@ -153,7 +128,7 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def test_invalid_cover_piece_of_equal_or_larger_size(self):
+    def test_cover_piece_of_equal_or_larger_size(self):
         def alg(board, dugout):
             # Try to move a smaller piece at (0, 0)
             # to cover a larger piece at (0, 1)
@@ -173,8 +148,10 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def test_invalid_dugout_source_piece(self):
+    def test_dugout_source_piece_not_available(self):
         def alg(board, dugout):
+            # Trying to move a piece from the bottom of a stack
+            # i.e. you can only move the piece off the top of the stack.
             piece = dugout.stacks[0][0]
             return piece, (0, 0)
 
@@ -184,10 +161,11 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def test_invalid_move_other_players_piece(self):
+    def test_move_other_players_piece(self):
         piece = None
 
         def alg(board, dugout):
+            # White algorithm tries to use black's piece
             return piece, (0, 0)
 
         game = gobblet.Game(alg, Mock())
@@ -198,66 +176,65 @@ class ValidationTestCase(unittest.TestCase):
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
             game.tick()
 
-    def todo(self):
-        # Invalid dugout piece
-        bottom_piece = self.player.dugout.pieces[0][0]
 
-        self.assertInvalidMove(bottom_piece, None, (0, 0),
-                               "Invalid dugout piece")
+class SimulationTestCase(unittest.TestCase):
 
-        # No source 
-        self.assertInvalidMove(None, None, None, 'No source')
+    def _init_simulation(self):
+        def player_algorithm(board, dugout):
+            return self.next_move(board, dugout)
 
-        # Move a piece from the dugout to the board
-        piece = self.player.dugout.available_pieces()[0]
-        self.player.dugout.use_piece(piece)
+        game = gobblet.Game(player_algorithm, player_algorithm)
+        return game
 
-        board.cells[0][0].append(piece)
+    def _recursive_copy_list(self, src):
+        if isinstance(src, list):
+            return list(map(self._recursive_copy_list, src))
+        return src
 
-        # No destination
-        self.assertInvalidMove(None, (0, 0), None, 'No destination')
+    def test_simulation(self):
 
-        # Make a piece owned by some other player and add it to the board
-        other_players_piece = deepcopy(piece)
-        other_players_piece.player = 'foo'
+        game = self._init_simulation()
 
-        board.cells[1][1].append(other_players_piece)
+        # Get a copy of the dugout stacks for each player and the board
+        # so we can use them in assertions to check game state.
+        white_pieces = self._recursive_copy_list(game.white.dugout.stacks)
+        black_pieces = self._recursive_copy_list(game.black.dugout.stacks)
+        board = self._recursive_copy_list(game.board.cells)
 
-        self.assertInvalidMove(None, (1, 1), (2, 2), "other player's piece")
+        def tick_and_check_state():
+            game.tick()
 
-        # Add a small piece to the board
-        small_piece = deepcopy(piece)
-        small_piece.size = piece.size - 1
+            # Check that the game's board matches our copy of the board
+            # i.e. that the game's board matches what we expect
+            self.assertEqual(game.board.cells, board)
 
-        board.cells[2][2].append(small_piece)
+            # Check the same for the player dugout stacks
+            self.assertEqual(game.white.dugout.stacks, white_pieces)
+            self.assertEqual(game.black.dugout.stacks, black_pieces)
 
-        self.assertInvalidMove(None, (2, 2), (0, 0),
-                               'piece of equal or larger size')
 
-        # Source and destination cannot be the same
+        # White's turn. Move from dugout to (0, 0)
+        self.next_move = lambda b, d: (d.available_pieces()[0], (0, 0))
+        moved_piece = white_pieces[0].pop()
+        board[0][0].append(moved_piece)
 
-        self.assertInvalidMove(None, (0, 0), (0, 0),
-                               'piece of equal or larger size')
+        tick_and_check_state()
 
-        # Valid moves
-        # Remember, these moves don't modify the state of the board,
-        # so try not to think of these as actually moving pieces,
-        # just validating possible moves.
+        # Black's turn. Move from dugout to (1, 1)
+        self.next_move = lambda b, d: (d.available_pieces()[0], (1, 1))
+        moved_piece = black_pieces[0].pop()
+        board[1][1].append(moved_piece)
 
-        # Take a large piece from the dugout and place it on an empty cell
-        self.assertValidMove(1, None, (0, 1))
+        tick_and_check_state()
 
-        # Take a small piece from the dugout and place it on an empty cell
-        self.assertValidMove(0, None, (0, 2))
+        # White's turn. Move from (0, 0) to (2, 2)
+        # TODO wow, that board cell reference API sucks!
+        self.next_move = lambda b, d: (b.cells[0][0][-1], (2, 2))
+        moved_piece = board[0][0].pop()
+        board[2][2].append(moved_piece)
 
-        # Move a large piece to an empty cell
-        self.assertValidMove(None, (0, 0), (0, 3))
+        tick_and_check_state()
 
-        # Move a small piece to an empty cell
-        self.assertValidMove(None, (2, 2), (0, 3))
-
-        # Move a large piece over an small piece
-        self.assertValidMove(None, (0, 0), (2, 2))
 
 
 if __name__ == '__main__':
