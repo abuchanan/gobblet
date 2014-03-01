@@ -10,7 +10,8 @@ class DugoutTestCase(unittest.TestCase):
         player = 'sally'
         sizes = gobblet.Sizes.all
         num_stacks = 2
-        self.dugout = gobblet.Dugout(player, sizes, num_stacks)
+        stacks = gobblet.create_stacks(player, gobblet.Sizes.all, num_stacks)
+        self.dugout = gobblet.Dugout(stacks)
 
     def assertPieces(self, pieces, expected):
         for piece, expect in zip(pieces, expected):
@@ -63,7 +64,7 @@ class DugoutTestCase(unittest.TestCase):
         ]
         self.assertPieces(self.dugout.available, expected_pieces)
 
-        self.dugout.stacks[0] = []
+        self.dugout.stacks[0] = gobblet.Stack()
 
         expected_pieces = [
             ('sally', gobblet.Sizes.lg),

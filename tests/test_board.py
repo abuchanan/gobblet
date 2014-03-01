@@ -14,23 +14,36 @@ class BoardTestCase(unittest.TestCase):
 
     def test_default_item(self):
         board = gobblet.Board(4)
-        self.assertEqual(board.cells[0][0], [])
+        self.assertEqual(type(board[0, 0]), gobblet.Stack)
+        self.assertEqual(len(board[0, 0]), 0)
 
     def test_get_column(self):
         board = gobblet.Board(4)
-        board.cells[0][1].append('foo')
-        board.cells[3][1].append('bar')
-        self.assertEqual(board._get_column(1), [['foo'], [], [], ['bar']])
+        board[0, 1].push('foo')
+        board[3, 1].push('bar')
+        col = board.get_column(1)
+        self.assertEqual(col[0].pieces, ['foo'])
+        self.assertEqual(col[1].pieces, [])
+        self.assertEqual(col[2].pieces, [])
+        self.assertEqual(col[3].pieces, ['bar'])
 
-    def test_get_cell(self):
+    def test_getitem(self):
         board = gobblet.Board(4)
-        board.cells[0][1].append('foo')
-        self.assertEqual(board.get_cell((0, 1)), ['foo'])
+        board.cells[0][1].push('foo')
+        self.assertEqual(board[0, 1].pieces, ['foo'])
 
-    def test_cell_append(self):
+    def test_cell_push(self):
         board = gobblet.Board(4)
-        board.cells[0][0].append(1)
-        self.assertEqual(board.cells, [
+        board[0, 0].push(1)
+
+        cells = []
+        for row in board.cells:
+            cell_row = []
+            cells.append(cell_row)
+            for stack in row:
+                cell_row.append(stack.pieces)
+
+        self.assertEqual(cells, [
             [[1], [], [], []],
             [[], [], [], []],
             [[], [], [], []],

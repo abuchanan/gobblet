@@ -1,4 +1,5 @@
 from collections import namedtuple
+from copy import copy
 from functools import total_ordering
 
 
@@ -26,14 +27,66 @@ class Sizes:
 
     all = [xs, sm, lg, xl]
 
-#import math
-#print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
-
 
 class Piece(object):
     def __init__(self, player, size):
         self.player = player
         self.size = size
+
+
+class Stack(object):
+    def __init__(self, pieces=None):
+        self.pieces = pieces or []
+
+    def __len__(self):
+        return len(self.pieces)
+
+    def __getitem__(self, key):
+        return self.pieces[key]
+
+    def __copy__(self):
+        return Stack(list(self.pieces))
+
+    def top(self):
+        return self.pieces[-1]
+
+    def push(self, piece):
+        self.pieces.append(piece)
+
+    def pop(self):
+        return self.pieces.pop()
+
+
+class Dugout(object):
+
+    class NoSuchPiece(Exception): pass
+
+    def __init__(self, stacks):
+        self.stacks = stacks
+
+    def __copy__(self):
+        stacks = list(copy(stack) for stack in self.stacks)
+        return Dugout(stacks)
+
+    @property
+    def available(self):
+        available = []
+        for stack in self.stacks:
+            try:
+                available.append(stack.top())
+            except IndexError:
+                pass
+        return available
+
+    def use_piece(self, piece):
+        for stack in self.stacks:
+            try:
+                if stack.top() == piece:
+                    return stack.pop()
+            except IndexError:
+                pass
+
+        raise self.NoSuchPiece(piece)
 
 
 class Board(object):
@@ -48,14 +101,24 @@ class Board(object):
             self.cells.append(row)
 
             for col_i in range(size):
-                row.append([])
+                stack = Stack()
+                row.append(stack)
 
-    def _get_column(self, col):
-        return [self.cells[row][col] for row in range(self.size)]
-
-    def get_cell(self, pos):
-        row, col = pos
+    def __getitem__(self, key):
+        row, col = key
         return self.cells[row][col]
+
+    def __copy__(self):
+        board = Board(self.size)
+        for key, cell in self:
+            row, col = key
+            board.cells[row][col] = copy(cell)
+        return board
+
+    def __iter__(self):
+        for row_i, row in enumerate(self.cells):
+            for col_i, cell in enumerate(row):
+                yield (row_i, col_i), cell
 
     @property
     def available(self):
@@ -66,61 +129,16 @@ class Board(object):
                     available.append(cell[-1])
         return available
 
+    def get_column(self, col):
+        return [self.cells[row][col] for row in range(self.size)]
+
     def find(self, piece):
-        for row_i, row in enumerate(self.cells):
-            for col_i, cell in enumerate(row):
-                if cell and cell[-1] is piece:
-                    return row_i, col_i
-
-
-class Dugout(object):
-
-    Piece = Piece
-
-    class NoSuchPiece(Exception): pass
-
-    def __init__(self, player, sizes, num_stacks):
-        # The "dugout" represents a player's pieces that are not on the board,
-        # stored as a list of lists, e.g.
-        #
-        #     sizes = [extra_small, small, large, extra_large]
-        #     num_stacks = 3
-        #     pieces = [
-        #         [extra_small, small, large, extra_large],
-        #         [extra_small, small, large, extra_large],
-        #         [extra_small, small, large, extra_large],
-        #     ]
-        #
-        # The example dugout has four sizes, and three stacks holding pieces of
-        # those sizes, so twelve total pieces in the dugout.
-        #
-        # Pieces must be accessed in order, from largest to smallest, i.e.
-        # popped off each stack.
-        self.stacks = []
-        for stack_i in range(num_stacks):
-            stack = []
-            self.stacks.append(stack)
-
-            for size in sizes:
-                piece = self.Piece(player, size)
-                stack.append(piece)
-
-    @property
-    def available(self):
-        available = []
-        for stack in self.stacks:
-            if stack:
-                available.append(stack[-1])
-        return available
-
-    def use_piece(self, piece):
-        if piece not in self.available:
-            raise self.NoSuchPiece(piece)
-
-        for stack in self.stacks:
-            if stack and stack[-1] == piece:
-                return stack.pop()
-
+        for key, cell in self:
+            try:
+                if cell.top() is piece:
+                    return key
+            except IndexError:
+                pass
 
 
 class Player(object):
@@ -148,10 +166,12 @@ class Game(object):
     def __init__(self, white_algorithm, black_algorithm):
         self.board = Board(self.BOARD_SIZE)
 
-        white_dugout = Dugout('white', Sizes.all, self.NUM_STACKS)
+        white_stacks = create_stacks('white', Sizes.all, self.NUM_STACKS)
+        white_dugout = Dugout(white_stacks)
         self.white = Player('white', white_algorithm, white_dugout)
 
-        black_dugout = Dugout('black', Sizes.all, self.NUM_STACKS)
+        black_stacks = create_stacks('black', Sizes.all, self.NUM_STACKS)
+        black_dugout = Dugout(black_stacks)
         self.black = Player('black', black_algorithm, black_dugout)
 
         self.on_deck, self.off_deck = self.white, self.black
@@ -179,7 +199,7 @@ class Game(object):
             raise InvalidMove("Source piece is not available")
 
         try:
-            dest_cell = self.board.get_cell(dest)
+            dest_cell = self.board[dest]
         except IndexError:
             raise InvalidMove("Invalid destination")
 
@@ -219,10 +239,13 @@ class Game(object):
                 # Rows
                 yield board.cells[i]
                 # Columns
-                yield board._get_column(i)
+                yield board.get_column(i)
 
-                diagonal_a.append(board.cells[i][i])
-                diagonal_b.append(board.cells[board.size - i - 1][i])
+                diagonal_a.append(board[i, i])
+
+                row = board.size - i - 1
+                col = i
+                diagonal_b.append(board[row, col])
 
             # The two diagonals
             yield diagonal_a
@@ -238,13 +261,13 @@ class Game(object):
             player.dugout.use_piece(piece)
         except player.dugout.NoSuchPiece:
             pos = self.board.find(piece)
-            self.board.get_cell(pos).pop()
+            self.board[pos].pop()
 
         winner = self._check_win(self.board)
         if winner:
             raise Winner(winner)
 
-        self.board.get_cell(dest).append(piece)
+        self.board[dest].push(piece)
 
         winner = self._check_win(self.board)
         if winner:
@@ -267,4 +290,33 @@ class Game(object):
         self.on_deck, self.off_deck = self.off_deck, self.on_deck
 
 
-def random_player(board, dugout): pass
+
+def create_stacks(player, sizes, num_stacks):
+    # The "dugout" represents a player's pieces that are not on the board,
+    # stored as a list of lists, e.g.
+    #
+    #     sizes = [extra_small, small, large, extra_large]
+    #     num_stacks = 3
+    #     pieces = [
+    #         [extra_small, small, large, extra_large],
+    #         [extra_small, small, large, extra_large],
+    #         [extra_small, small, large, extra_large],
+    #     ]
+    #
+    # The example dugout has four sizes, and three stacks holding pieces of
+    # those sizes, so twelve total pieces in the dugout.
+    #
+    # Pieces must be accessed in order, from largest to smallest,
+    # i.e. popped off each stack.
+    stacks = []
+    for stack_i in xrange(num_stacks):
+        pieces = [Piece(player, size) for size in sizes]
+        stack = Stack(pieces)
+        stacks.append(stack)
+    return stacks
+
+# Rough math for calculating number of possibilities in a game
+# no idea if this is correct/complete, probably not
+#import math
+#print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
+
