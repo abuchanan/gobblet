@@ -10,10 +10,10 @@ class GameTestCase(unittest.TestCase):
     def test_tick_calls_alternating_algorithms(self):
 
         def white_alg(board, dugout):
-            return dugout.available_pieces()[0], (0, 0)
+            return dugout.available[0], (0, 0)
 
         def black_alg(board, dugout):
-            return dugout.available_pieces()[0], (0, 1)
+            return dugout.available[0], (0, 1)
 
         white_alg = Mock(wraps=white_alg)
         black_alg = Mock(wraps=black_alg)
@@ -58,7 +58,7 @@ class GameTestCase(unittest.TestCase):
 
     def test_forfeit(self):
         def white_alg(board, dugout):
-            return dugout.available_pieces()[0], (0, 0)
+            return dugout.available[0], (0, 0)
 
         white_alg = Mock(wraps=white_alg)
 
@@ -80,7 +80,7 @@ class GameTestCase(unittest.TestCase):
         game = gobblet.Game(Mock(), Mock())
 
         for x in range(game.board.size):
-            piece = game.white.dugout.available_pieces().pop()
+            piece = game.white.dugout.available.pop()
             game.white.dugout.use_piece(piece)
             game.board.cells[0][x].append(piece)
 
@@ -90,7 +90,7 @@ class GameTestCase(unittest.TestCase):
         game = gobblet.Game(Mock(), Mock())
 
         for x in range(game.board.size):
-            piece = game.white.dugout.available_pieces().pop()
+            piece = game.white.dugout.available.pop()
             game.white.dugout.use_piece(piece)
             game.board.cells[x][0].append(piece)
 
@@ -99,7 +99,7 @@ class GameTestCase(unittest.TestCase):
     def test_diagonal_a_win(self):
         game = gobblet.Game(Mock(), Mock())
         board = game.board
-        piece = game.white.dugout.available_pieces()[0]
+        piece = game.white.dugout.available[0]
 
         board.cells[0][0].append(piece)
         board.cells[1][1].append(piece)
@@ -111,7 +111,7 @@ class GameTestCase(unittest.TestCase):
     def test_diagonal_b_win(self):
         game = gobblet.Game(Mock(), Mock())
         board = game.board
-        piece = game.white.dugout.available_pieces()[0]
+        piece = game.white.dugout.available[0]
 
         board.cells[0][3].append(piece)
         board.cells[1][2].append(piece)
@@ -124,7 +124,7 @@ class GameTestCase(unittest.TestCase):
     def test_not_win(self):
         game = gobblet.Game(Mock(), Mock())
         board = game.board
-        piece = game.white.dugout.available_pieces()[0]
+        piece = game.white.dugout.available[0]
 
         self.assertFalse(game._check_win(board))
 
@@ -132,7 +132,7 @@ class GameTestCase(unittest.TestCase):
         board.cells[0][1].append(piece)
         board.cells[0][2].append(piece)
 
-        piece = game.black.dugout.available_pieces()[0]
+        piece = game.black.dugout.available[0]
         board.cells[0][3].append(piece)
 
         self.assertFalse(game._check_win(board))
@@ -140,7 +140,7 @@ class GameTestCase(unittest.TestCase):
     def test_commit_winner(self):
         game = gobblet.Game(Mock(), Mock())
         board = game.board
-        piece = game.white.dugout.available_pieces()[0]
+        piece = game.white.dugout.available[0]
 
         for x in range(board.size - 1):
             board.cells[0][x].append(piece)
@@ -154,7 +154,7 @@ class GameTestCase(unittest.TestCase):
         game = gobblet.Game(Mock(), Mock())
         board = game.board
 
-        white_piece = game.white.dugout.available_pieces()[0]
+        white_piece = game.white.dugout.available[0]
 
         board.cells[0][0].append(white_piece)
         board.cells[0][1].append(white_piece)
@@ -164,7 +164,7 @@ class GameTestCase(unittest.TestCase):
         # This is the important part. In this cell, black is covering
         # white's piece. When black lifts up the piece, it will
         # reveal white A's win.
-        black_piece = game.black.dugout.available_pieces()[0]
+        black_piece = game.black.dugout.available[0]
         game.black.dugout.use_piece(black_piece)
         board.cells[0][3].append(black_piece)
 
@@ -195,7 +195,7 @@ class InvalidTestCase(unittest.TestCase):
 
     def test_destination_is_None(self):
         def alg(board, dugout):
-            return dugout.available_pieces()[0], None
+            return dugout.available[0], None
 
         game = gobblet.Game(alg, Mock())
 
@@ -205,7 +205,7 @@ class InvalidTestCase(unittest.TestCase):
 
     def test_destination_out_of_bounds(self):
         def alg(board, dugout):
-            return dugout.available_pieces()[0], (5, 5)
+            return dugout.available[0], (5, 5)
 
         game = gobblet.Game(alg, Mock())
 
@@ -270,7 +270,7 @@ class InvalidTestCase(unittest.TestCase):
 
         game = gobblet.Game(alg, Mock())
 
-        piece = game.black.dugout.available_pieces()[0]
+        piece = game.black.dugout.available[0]
 
         regexp = 'Source piece is not available'
         with self.assertRaisesRegexp(gobblet.InvalidMove, regexp):
@@ -314,14 +314,14 @@ class SimulationTestCase(unittest.TestCase):
 
 
         # White's turn. Move from dugout to (0, 0)
-        self.next_move = lambda b, d: (d.available_pieces()[0], (0, 0))
+        self.next_move = lambda b, d: (d.available[0], (0, 0))
         moved_piece = white_pieces[0].pop()
         board[0][0].append(moved_piece)
 
         tick_and_check_state()
 
         # Black's turn. Move from dugout to (1, 1)
-        self.next_move = lambda b, d: (d.available_pieces()[0], (1, 1))
+        self.next_move = lambda b, d: (d.available[0], (1, 1))
         moved_piece = black_pieces[0].pop()
         board[1][1].append(moved_piece)
 

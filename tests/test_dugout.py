@@ -34,7 +34,7 @@ class DugoutTestCase(unittest.TestCase):
             ('sally', gobblet.Sizes.xl),
             ('sally', gobblet.Sizes.xl),
         ]
-        self.assertPieces(self.dugout.available_pieces(), expected_pieces)
+        self.assertPieces(self.dugout.available, expected_pieces)
 
         self.dugout.stacks[0].pop()
 
@@ -42,33 +42,33 @@ class DugoutTestCase(unittest.TestCase):
             ('sally', gobblet.Sizes.lg),
             ('sally', gobblet.Sizes.xl),
         ]
-        self.assertPieces(self.dugout.available_pieces(), expected_pieces)
+        self.assertPieces(self.dugout.available, expected_pieces)
 
     def test_use_piece(self):
-        piece = self.dugout.available_pieces()[0]
+        piece = self.dugout.available[0]
         self.dugout.use_piece(piece)
 
         expected_pieces = [
             ('sally', gobblet.Sizes.lg),
             ('sally', gobblet.Sizes.xl),
         ]
-        self.assertPieces(self.dugout.available_pieces(), expected_pieces)
+        self.assertPieces(self.dugout.available, expected_pieces)
 
-        piece = self.dugout.available_pieces()[1]
+        piece = self.dugout.available[1]
         self.dugout.use_piece(piece)
 
         expected_pieces = [
             ('sally', gobblet.Sizes.lg),
             ('sally', gobblet.Sizes.lg),
         ]
-        self.assertPieces(self.dugout.available_pieces(), expected_pieces)
+        self.assertPieces(self.dugout.available, expected_pieces)
 
         self.dugout.stacks[0] = []
 
         expected_pieces = [
             ('sally', gobblet.Sizes.lg),
         ]
-        self.assertPieces(self.dugout.available_pieces(), expected_pieces)
+        self.assertPieces(self.dugout.available, expected_pieces)
 
     def test_NoSuchPiece(self):
         # Get a piece from the bottom of a stack

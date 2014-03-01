@@ -57,7 +57,8 @@ class Board(object):
         row, col = pos
         return self.cells[row][col]
 
-    def available_pieces(self):
+    @property
+    def available(self):
         available = []
         for row in self.cells:
             for cell in row:
@@ -104,7 +105,8 @@ class Dugout(object):
                 piece = self.Piece(player, size)
                 stack.append(piece)
 
-    def available_pieces(self):
+    @property
+    def available(self):
         available = []
         for stack in self.stacks:
             if stack:
@@ -112,7 +114,7 @@ class Dugout(object):
         return available
 
     def use_piece(self, piece):
-        if piece not in self.available_pieces():
+        if piece not in self.available:
             raise self.NoSuchPiece(piece)
 
         for stack in self.stacks:
@@ -172,8 +174,8 @@ class Game(object):
         #      (what I really wanted was board.cells[0][0][-1])
         #      make the API easier, but also give more informative errors
         #      such as "You didn't return a piece"
-        if (piece not in player.dugout.available_pieces() and
-            piece not in self.board.available_pieces()):
+        if (piece not in player.dugout.available and
+            piece not in self.board.available):
             raise InvalidMove("Source piece is not available")
 
         try:
