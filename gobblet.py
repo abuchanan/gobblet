@@ -1,10 +1,14 @@
 from collections import namedtuple
 from copy import copy
 from functools import total_ordering
+import random
 
 
 @total_ordering
 class Size(object):
+
+    """Represents the size of a piece."""
+
     def __init__(self, name, value):
         self.name = name
         self.value = value
@@ -35,6 +39,16 @@ class Piece(object):
 
 
 class Stack(object):
+
+    """
+    Data structure for a stack of pieces.
+
+    Pieces come in various sizes and can be stacked on top of each other.
+    Normally, the player only interacts with the top of the stack,
+    either removing the top piece with stack.pop() or add a piece
+    to the top of a stack with stack.push(piece).
+    """
+
     def __init__(self, pieces=None):
         self.pieces = pieces or []
 
@@ -58,6 +72,14 @@ class Stack(object):
 
 
 class Dugout(object):
+
+    """
+    Data structure for the pieces a player starts with, which are not
+    of the board. I nicknamed these stacks of pieces the player's "dugout".
+
+    Each player as a number of stacks of pieces which they move from the
+    dugout onto the board.
+    """
 
     class NoSuchPiece(Exception): pass
 
@@ -143,10 +165,14 @@ class Board(object):
 
 class Player(object):
 
-    def __init__(self, name, algorithm, dugout):
+    def __init__(self, name):
         self.name = name
-        self.algorithm = algorithm
-        self.dugout = dugout
+
+    def move(self, board, dugout):
+        raise NotImplementedError()
+
+    def __call__(self, board, dugout):
+        return self.move(board, dugout)
 
 
 class Forfeit(Exception): pass
@@ -163,20 +189,23 @@ class Game(object):
     BOARD_SIZE = 4
     NUM_STACKS = 3
 
-    def __init__(self, white_algorithm, black_algorithm):
+    PlayerInfo = namedtuple('PlayerInfo', 'player dugout')
+
+    def __init__(self, white, black):
         self.board = Board(self.BOARD_SIZE)
 
-        white_stacks = create_stacks('white', Sizes.all, self.NUM_STACKS)
-        white_dugout = Dugout(white_stacks)
-        self.white = Player('white', white_algorithm, white_dugout)
+        white_stacks = create_stacks(white, Sizes.all, self.NUM_STACKS)
+        self.white_dugout = Dugout(white_stacks)
 
-        black_stacks = create_stacks('black', Sizes.all, self.NUM_STACKS)
-        black_dugout = Dugout(black_stacks)
-        self.black = Player('black', black_algorithm, black_dugout)
+        black_stacks = create_stacks(black, Sizes.all, self.NUM_STACKS)
+        self.black_dugout = Dugout(black_stacks)
+
+        self.white = self.PlayerInfo(white, self.white_dugout)
+        self.black = self.PlayerInfo(black, self.black_dugout)
 
         self.on_deck, self.off_deck = self.white, self.black
 
-    def _validate(self, player, piece, dest):
+    def _validate(self, player, dugout, piece, dest):
 
         if piece is None:
             raise InvalidMove("Must provide a source piece")
@@ -194,7 +223,7 @@ class Game(object):
         #      (what I really wanted was board.cells[0][0][-1])
         #      make the API easier, but also give more informative errors
         #      such as "You didn't return a piece"
-        if (piece not in player.dugout.available and
+        if (piece not in dugout.available and
             piece not in self.board.available):
             raise InvalidMove("Source piece is not available")
 
@@ -256,10 +285,10 @@ class Game(object):
             if winner:
                 return winner
 
-    def _commit(self, player, piece, dest):
+    def _commit(self, player, dugout, piece, dest):
         try:
-            player.dugout.use_piece(piece)
-        except player.dugout.NoSuchPiece:
+            dugout.use_piece(piece)
+        except dugout.NoSuchPiece:
             pos = self.board.find(piece)
             self.board[pos].pop()
 
@@ -273,20 +302,21 @@ class Game(object):
         if winner:
             raise Winner(winner)
 
-    def move(self, player):
-        piece, dest = player.algorithm(self.board, player.dugout)
+    def move(self, player, dugout):
+        piece, dest = player(self.board, dugout)
 
-        self._validate(player, piece, dest)
-        self._commit(player, piece, dest)
+        self._validate(player, dugout, piece, dest)
+        self._commit(player, dugout, piece, dest)
 
     def tick(self):
         try:
-            self.move(self.on_deck)
+            self.move(self.on_deck.player, self.on_deck.dugout)
         except Forfeit:
-            return self.off_deck
+            return self.off_deck.player
         except Winner as e:
             return e.player
 
+        # Swap on_deck and off_deck
         self.on_deck, self.off_deck = self.off_deck, self.on_deck
 
 
@@ -315,8 +345,75 @@ def create_stacks(player, sizes, num_stacks):
         stacks.append(stack)
     return stacks
 
+
+class RandomPlayer(Player):
+    """
+    Random movement algorithm. Seems to get stuck around turn 30-50.
+    """
+
+    def _random_cell(self, board):
+        return random.randrange(board.size), random.randrange(board.size)
+
+    def move(self, board, dugout):
+
+        if dugout.available:
+            # TODO awkward API. I tripped over this because I wasn't actually
+            #      supposed to call use_piece()
+            # piece = dugout.use_piece(dugout.available[0])
+            piece = dugout.available[0]
+
+            dest = self._random_cell(board)
+            while len(board[dest]) and board[dest].top().size >= piece.size:
+                dest = self._random_cell(board)
+                
+            return piece, dest
+
+        else:
+            src = self._random_cell(board)
+            while not len(board[src]) or board[src].top().player is not self:
+                src = self._random_cell(board)
+
+            piece = board[src].top()
+
+            dest = self._random_cell(board)
+            while len(board[dest]) and board[dest].top().size >= piece.size:
+                dest = self._random_cell(board)
+
+            return piece, dest
+
+
+if __name__ == '__main__':
+    white = RandomPlayer('white')
+    black = RandomPlayer('black')
+    game = Game(white, black)
+    turn_count = 0
+    while True:
+        game.tick()
+        turn_count += 1
+        #if turn_count % 10 == 0:
+        if True:
+            print 'turn count: {}'.format(turn_count)
+
 # Rough math for calculating number of possibilities in a game
 # no idea if this is correct/complete, probably not
 #import math
 #print sum(math.factorial(24) / (math.factorial(x) * math.factorial(24 - x)) for x in range(1, 16)) / 4
 
+
+# TODO
+# - documentation about how to write a player algorithm.
+# - currently there is no protection against player algorithms messing with
+#   the internals of the game, such as the board or opponents data structures.
+#   it's not a big deal since no one is actually using this code besides me
+#   but it would be nice to make this code complete by sandboxing the player's
+#   access.
+# - there's probably room for improvement of the player API. something like,
+#   `dugout[0].pop().move_to(board.cell)`, I don't know.
+#   Something with move_to()
+#   The Dugout.use_piece() method is kinda weird I feel. It'd be nice if the
+#   state of the board and pieces changed behind the scenes when you made
+#   a call like Piece.move_to(destination).
+#   It might also be nice if the player algorithm could catch InvalidMove
+#   errors? That way a random algorithm could just keep calling random_dest()
+#   until it didn't catch that error?
+# - Maybe Stack should do some validation in push()?

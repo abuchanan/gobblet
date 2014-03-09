@@ -75,7 +75,7 @@ class GameTestCase(unittest.TestCase):
         game._commit = Mock()
 
         self.assertEqual(game.tick(), None)
-        self.assertEqual(game.tick(), game.white)
+        self.assertEqual(game.tick(), game.white.player)
 
     def test_horizontal_win(self):
         game = gobblet.Game(Mock(), Mock())
@@ -147,9 +147,9 @@ class GameTestCase(unittest.TestCase):
             board[0, x].push(piece)
 
         with self.assertRaises(gobblet.Winner) as cm:
-            game._commit(game.white, piece, (0, 3))
+            game._commit(game.white.player, game.white.dugout, piece, (0, 3))
 
-        self.assertEqual(cm.exception.player, 'white')
+        self.assertEqual(cm.exception.player, game.white.player)
             
     def test_winner_in_middle_of_move(self):
         game = gobblet.Game(Mock(), Mock())
@@ -173,9 +173,9 @@ class GameTestCase(unittest.TestCase):
             # Here black lifts up the piece at (0, 3) with the intention
             # of moving it somewhere else, but in the middle of the move
             # white wins.
-            game._commit(game.black, black_piece, (0, 0))
+            game._commit(game.black.player, game.black.dugout, black_piece, (0, 0))
 
-        self.assertEqual(cm.exception.player, 'white')
+        self.assertEqual(cm.exception.player, game.white.player)
 
 
 class InvalidTestCase(unittest.TestCase):
