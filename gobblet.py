@@ -1,6 +1,7 @@
 from collections import namedtuple
-from copy import copy
+from copy import copy, deepcopy
 from functools import total_ordering
+import itertools
 import random
 
 
@@ -65,11 +66,18 @@ class Stack(object):
         return self.pieces[-1]
 
     def push(self, piece):
+        if self.pieces and piece.size >= self.top().size:
+            m = "Can't push piece on to stack because its size is " \
+                "greater than or equal to the piece on top of the stack"
+            raise ValueError(m)
+
         self.pieces.append(piece)
 
     def pop(self):
         return self.pieces.pop()
 
+
+class NoSuchPiece(Exception): pass
 
 class Dugout(object):
 
@@ -80,8 +88,6 @@ class Dugout(object):
     Each player as a number of stacks of pieces which they move from the
     dugout onto the board.
     """
-
-    class NoSuchPiece(Exception): pass
 
     def __init__(self, stacks):
         self.stacks = stacks
@@ -99,16 +105,6 @@ class Dugout(object):
             except IndexError:
                 pass
         return available
-
-    def use_piece(self, piece):
-        for stack in self.stacks:
-            try:
-                if stack.top() == piece:
-                    return stack.pop()
-            except IndexError:
-                pass
-
-        raise self.NoSuchPiece(piece)
 
 
 class Board(object):
@@ -148,7 +144,7 @@ class Board(object):
         for row in self.cells:
             for cell in row:
                 if cell:
-                    available.append(cell[-1])
+                    available.append(cell.top())
         return available
 
     def get_column(self, col):
@@ -237,7 +233,7 @@ class Game(object):
         if source_pos and source_pos == dest:
             raise InvalidMove("Cannot move a piece to the same cell")
 
-        if dest_cell and piece.size <= dest_cell[-1].size:
+        if dest_cell and piece.size <= dest_cell.top().size:
             raise InvalidMove("Can't cover a piece of equal or larger size")
             
 
@@ -247,7 +243,7 @@ class Game(object):
             players = []
             for cell in cells:
                 if cell:
-                    players.append(cell[-1].player)
+                    players.append(cell.top().player)
                 else:
                     players.append(None)
                 
@@ -285,10 +281,21 @@ class Game(object):
             if winner:
                 return winner
 
+    def _use_piece(self, dugout, piece):
+        for stack in dugout.stacks:
+            try:
+                if stack.top() == piece:
+                    return stack.pop()
+            except IndexError:
+                pass
+
+        raise NoSuchPiece(piece)
+
     def _commit(self, player, dugout, piece, dest):
+
         try:
-            dugout.use_piece(piece)
-        except dugout.NoSuchPiece:
+            self._use_piece(dugout, piece)
+        except NoSuchPiece:
             pos = self.board.find(piece)
             self.board[pos].pop()
 
@@ -357,9 +364,6 @@ class RandomPlayer(Player):
     def move(self, board, dugout):
 
         if dugout.available:
-            # TODO awkward API. I tripped over this because I wasn't actually
-            #      supposed to call use_piece()
-            # piece = dugout.use_piece(dugout.available[0])
             piece = dugout.available[0]
 
             dest = self._random_cell(board)
@@ -382,7 +386,46 @@ class RandomPlayer(Player):
             return piece, dest
 
 
-if __name__ == '__main__':
+class MoveTreeNode(object):
+    def __init__(self):
+        self.children = []
+
+
+class MinimaxPlayer(Player):
+    def score_board(self, board):
+        pass
+
+    def move(self, board, dugout):
+        pass
+
+
+def get_available_moves(board, dugout, player):
+    for piece in dugout.available:
+        for key, cell in board:
+            if cell.pieces and cell.pieces.top().size < piece.size:
+                yield key, piece
+            elif not cell.pieces:
+                yield key, piece
+
+    for a, b in itertools.permutations(iter(board), 2):
+        _, cell_a = a
+        dest, cell_b = b
+
+        try:
+            piece = cell_a.top()
+            if piece.player is not player:
+                continue
+
+            if cell_b and cell_b.top().size >= piece.size:
+                continue
+
+            yield dest, piece
+                    
+        except IndexError:
+            pass
+
+
+def random_player_game():
     white = RandomPlayer('white')
     black = RandomPlayer('black')
     game = Game(white, black)
@@ -394,6 +437,15 @@ if __name__ == '__main__':
         if True:
             print 'turn count: {}'.format(turn_count)
 
+
+if __name__ == '__main__':
+    white = RandomPlayer('white')
+    black = RandomPlayer('black')
+    game = Game(white, black)
+    
+    for move in get_available_moves(game.board, game.white_dugout, white):
+        print move
+
 # Rough math for calculating number of possibilities in a game
 # no idea if this is correct/complete, probably not
 #import math
@@ -401,7 +453,6 @@ if __name__ == '__main__':
 
 
 # TODO
-# - documentation about how to write a player algorithm.
 # - currently there is no protection against player algorithms messing with
 #   the internals of the game, such as the board or opponents data structures.
 #   it's not a big deal since no one is actually using this code besides me
@@ -410,10 +461,12 @@ if __name__ == '__main__':
 # - there's probably room for improvement of the player API. something like,
 #   `dugout[0].pop().move_to(board.cell)`, I don't know.
 #   Something with move_to()
-#   The Dugout.use_piece() method is kinda weird I feel. It'd be nice if the
+#   It'd be nice if the
 #   state of the board and pieces changed behind the scenes when you made
 #   a call like Piece.move_to(destination).
 #   It might also be nice if the player algorithm could catch InvalidMove
 #   errors? That way a random algorithm could just keep calling random_dest()
 #   until it didn't catch that error?
-# - Maybe Stack should do some validation in push()?
+# - regarding an improved API for player algorithms, it would be great if that
+#   API could simulate multiple moves in one turn, which would make it easy
+#   for a player bot to build a move tree.
